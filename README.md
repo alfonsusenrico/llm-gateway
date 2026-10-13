@@ -40,8 +40,8 @@ gateway solves them once.
 | Call admission, usage ledger, budget enforcement | Done |
 | Direct OpenAI calls, stub provider, result replay | Done |
 | Python client | Done |
-| Streamed responses | In review |
-| Function tools, web search | Planned |
+| Streamed responses | Done |
+| Function tools | Planned |
 | Async background jobs, flex tier, dynamic allocation | Planned |
 | Embeddings | Planned |
 

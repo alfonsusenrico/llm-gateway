@@ -13,6 +13,11 @@ The owner's personal LLM gateway. Every AI project calls it instead of a provide
   - owner alerts (Telegram now, Discord later).
 - **Projects own:** their prompts, the meaning of outputs, tools, memory, jobs,
   and UI.
+- **Scope rule:** the gateway serves model calls only. Project features stay
+  in the projects that need them, with their own keys and settings:
+  conversation history, memory, tool execution and loops, web search, and
+  any other third-party API. Add nothing to the gateway that only some
+  projects use.
 - **It never:**
   - provides browser login or proxying;
   - logs prompts or model output;
