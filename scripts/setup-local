@@ -10,11 +10,14 @@ fi
 
 password="$(python3 -c 'import secrets; print(secrets.token_urlsafe(24))')"
 pepper="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
+# A Fernet key is the padded urlsafe base64 of 32 random bytes.
+result_key="$(python3 -c 'import base64, os; print(base64.urlsafe_b64encode(os.urandom(32)).decode())')"
 port="5433"
 umask 077
 sed \
   -e "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=${password}|" \
   -e "s|^PROJECT_KEY_PEPPER=.*|PROJECT_KEY_PEPPER=${pepper}|" \
+  -e "s|^RESULT_ENCRYPTION_KEY=.*|RESULT_ENCRYPTION_KEY=${result_key}|" \
   -e "s|^DATABASE_URL=.*|DATABASE_URL=postgresql://llm_gateway:${password}@127.0.0.1:${port}/llm_gateway|" \
   -e "s|^TEST_DATABASE_URL=.*|TEST_DATABASE_URL=postgresql://llm_gateway:${password}@127.0.0.1:${port}/llm_gateway|" \
   .env.example > .env

@@ -37,8 +37,8 @@ gateway solves them once.
 | Project contracts, per-environment API keys, admin CLI | Done |
 | Request-to-grant allocation | In review |
 | Model catalogue and pricing | Done |
-| Call admission, usage ledger, budget enforcement | In review |
-| Direct OpenAI calls, stub provider, result replay | Proposed |
+| Call admission, usage ledger, budget enforcement | Done |
+| Direct OpenAI calls, stub provider, result replay | In review |
 | Python client | Proposed |
 | Streaming with function tools, hosted tools | Planned |
 | Async background jobs, flex tier, dynamic allocation | Planned |
@@ -134,6 +134,39 @@ docker compose run --rm api llm-gateway-admin project set-profile my_project cha
 
 To add a model or change a price, edit `src/llm_gateway/catalogue/models.json`
 or add a dated entry to `prices.json`, then run `./scripts/check`.
+
+### Making a call
+
+A development key can call the free stub model, which never contacts a
+provider:
+
+```bash
+curl -s http://127.0.0.1:8360/v1/responses \
+  -H "Authorization: Bearer $DEV_KEY" -H "Content-Type: application/json" \
+  -d '{"provider_call_id": "demo-1", "operation": "demo",
+       "model": {"provider": "stub", "model": "stub-echo"}, "input": "Hello"}'
+```
+
+- **Real models:** use a profile (`"profile": "chat"`) or a catalogue model
+  (`{"provider": "openai", "model": "gpt-6-luna"}`). Setting
+  `OPENAI_API_KEY` enables OpenAI.
+- **Input:** text, or messages with `input_text`, `input_image` (base64
+  PNG, JPEG, WEBP, or GIF), and `input_file` (base64 PDF) parts.
+- **Structured output:** `text_format` asks for a strict JSON schema, and
+  the parsed answer comes back in `output_json`.
+- **Allowance headers:** every response carries
+  - `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`;
+  - `X-Concurrency-Limit`, `X-Concurrency-Remaining`;
+  - `X-Budget-Remaining-USD`.
+- **Resubmitting the same `provider_call_id`** is always safe:
+  - a completed call returns its stored answer (`replayed: true`) for 24
+    hours, with no new charge;
+  - a call refused for a temporary reason runs again;
+  - a call whose outcome is unknown (`execution_unknown`) never runs
+    again. Use a new ID to try once more.
+- **Stub scenarios:** the stub accepts
+  `"stub": {"reply": ..., "scenario": "overloaded"}` to simulate each
+  failure type, so a project can test its error handling for free.
 
 Projects send their key as `Authorization: Bearer <key>`.
 `GET /v1/projects/self` confirms which project and environment a key belongs

@@ -17,6 +17,7 @@ from llm_gateway.allocation.store import recompute
 from llm_gateway.calls.budget import check_budget_thresholds
 from llm_gateway.calls.settlement import recover_abandoned
 from llm_gateway.db.pool import create_pool
+from llm_gateway.llm.results import delete_expired_results
 from llm_gateway.logging_setup import configure_logging
 from llm_gateway.notifier.channels import Channel, TelegramChannel
 from llm_gateway.notifier.delivery import BATCH_SIZE, deliver_due
@@ -63,6 +64,7 @@ async def run_worker(
             try:
                 await recover_abandoned(pool)
                 await check_budget_thresholds(pool, settings)
+                await delete_expired_results(pool)
             except Exception as exc:
                 logger.error("Ledger pass failed: %s", type(exc).__name__)
         if clock() >= next_recompute:

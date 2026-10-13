@@ -3,12 +3,13 @@ from __future__ import annotations
 import pytest
 
 from llm_gateway.settings import SettingsError, load_settings
-from tests.conftest import TEST_PEPPER
+from tests.conftest import TEST_PEPPER, TEST_RESULT_KEY
 
 
 @pytest.fixture(autouse=True)
 def _pepper(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PROJECT_KEY_PEPPER", TEST_PEPPER)
+    monkeypatch.setenv("RESULT_ENCRYPTION_KEY", TEST_RESULT_KEY)
 
 
 def test_production_is_the_default_environment(monkeypatch: pytest.MonkeyPatch) -> None:
