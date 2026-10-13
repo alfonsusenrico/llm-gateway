@@ -153,3 +153,21 @@ def test_set_weight_validates_and_recomputes(admin) -> None:
     assert out.startswith("Weight of alpha is now 3.")
     assert (bad_status, bad.strip()) == (1, "error: Weight must be between 1 and 100.")
     assert (ghost_status, ghost.strip()) == (1, "error: Project ghost is not registered.")
+
+
+def test_profiles_are_checked_against_the_catalogue(admin) -> None:
+    admin("project", "register", "personal_agent", "--display-name", "Agent")
+
+    temperature_status, temperature = admin(
+        "project", "set-profile", "personal_agent", "chat", "--provider", "openai",
+        "--model", "gpt-6-luna", "--reasoning-effort", "low", "--temperature", "0.7",
+    )  # fmt: skip
+    unknown_status, unknown = admin(
+        "project", "set-profile", "personal_agent", "chat", "--provider", "openai",
+        "--model", "gpt-9",
+    )  # fmt: skip
+
+    assert temperature_status == 1
+    assert "temperature only with reasoning_effort none" in temperature
+    assert unknown_status == 1
+    assert "openai/gpt-9 is not in the catalogue" in unknown

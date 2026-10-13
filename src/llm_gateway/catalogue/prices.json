@@ -1,0 +1,31 @@
+{
+  "prices": [
+    {
+      "provider": "openai",
+      "model": "gpt-6-luna",
+      "service_tier": "standard",
+      "effective_from": "2026-10-13",
+      "usd_per_million": {"input": "0.10", "cached_input": "0.01", "cache_write": "0.125", "output": "0.50"},
+      "long_context": {"threshold_input_tokens": 272000, "input_multiplier": "2", "output_multiplier": "1.5"},
+      "source_url": "https://developers.openai.com/api/docs/pricing"
+    },
+    {
+      "provider": "openai",
+      "model": "gpt-6-luna",
+      "service_tier": "flex",
+      "effective_from": "2026-10-13",
+      "usd_per_million": {"input": "0.05", "cached_input": "0.005", "cache_write": "0.0625", "output": "0.25"},
+      "long_context": {"threshold_input_tokens": 272000, "input_multiplier": "2", "output_multiplier": "1.5"},
+      "source_url": "https://developers.openai.com/api/docs/pricing"
+    },
+    {
+      "provider": "stub",
+      "model": "stub-echo",
+      "service_tier": "standard",
+      "effective_from": "2026-10-13",
+      "usd_per_million": {"input": "0", "cached_input": "0", "cache_write": "0", "output": "0"},
+      "long_context": null,
+      "source_url": "https://github.com/alfonsusenrico/llm-gateway"
+    }
+  ]
+}

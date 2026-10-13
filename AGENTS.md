@@ -55,6 +55,13 @@ docker compose run --rm api llm-gateway-admin grants show      # every grant and
   - `store.py`: `recompute()` under an advisory lock, skipped when the inputs
     hash is unchanged, with reduction and restoration alerts after commit.
 - `src/llm_gateway/money.py`: USD as integer micro-USD.
+- `src/llm_gateway/catalogue/`:
+  - `models.json` and `prices.json`: the reviewed data.
+  - `model.py`: strict loading, checked at start-up.
+  - `pricing.py`: `cost_micro_usd`, rounded up; `None` means unpriced.
+  - `profiles.py`: contract profile checks, run on save for new or changed
+    profiles only.
+- `src/llm_gateway/api/routes_catalogue.py`: `GET /v1/catalogue`.
 - `src/llm_gateway/projects/`:
   - `contract.py`: contract version 1, strict, with unknown fields rejected.
   - `keys.py`: the key format and HMAC storage.
@@ -84,6 +91,10 @@ docker compose run --rm api llm-gateway-admin grants show      # every grant and
   recorded outcome.
 - Every contract change goes through the registry service, which writes a
   new version. Never edit `contract_versions` or `project_keys` by hand.
+- Models and prices change only by editing the catalogue data files in a
+  reviewed change. A price change adds a new `effective_from` entry with its
+  `source_url` and never edits an old one. Every model needs a standard
+  price in effect, or start-up fails.
 - Raw project keys are printed once, at issue, and never stored or logged.
   `PROJECT_KEY_PEPPER` must never change; changing it invalidates every key.
 - Every limit and budget is a backend grant. A project's contract holds only

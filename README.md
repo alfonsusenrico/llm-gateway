@@ -36,7 +36,10 @@ gateway solves them once.
 | Owner notifier (Telegram) | Done |
 | Project contracts, per-environment API keys, admin CLI | Done |
 | Request-to-grant allocation | In review |
-| Direct calls, model profiles, usage ledger, budget enforcement, Python client | Planned |
+| Model catalogue and pricing | In review |
+| Call admission, usage ledger, budget enforcement | Proposed |
+| Direct OpenAI calls, stub provider, result replay | Proposed |
+| Python client | Proposed |
 | Streaming with function tools, hosted tools | Planned |
 | Async background jobs, flex tier, dynamic allocation | Planned |
 | Embeddings | Planned |
@@ -119,6 +122,18 @@ dimension:
 docker compose run --rm api llm-gateway-admin grants show
 docker compose run --rm api llm-gateway-admin project set-weight my_project 3
 ```
+
+Profiles name a catalogue model (`GET /v1/catalogue` lists them with
+current prices). A profile is checked when saved: unknown models, unsupported
+reasoning efforts, and a temperature with reasoning on gpt-6-luna are
+refused.
+
+```bash
+docker compose run --rm api llm-gateway-admin project set-profile my_project chat --provider openai --model gpt-6-luna --reasoning-effort low
+```
+
+To add a model or change a price, edit `src/llm_gateway/catalogue/models.json`
+or add a dated entry to `prices.json`, then run `./scripts/check`.
 
 Projects send their key as `Authorization: Bearer <key>`.
 `GET /v1/projects/self` confirms which project and environment a key belongs
