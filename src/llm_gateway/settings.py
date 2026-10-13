@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import Field, PostgresDsn, SecretStr, ValidationError
+from pydantic import Field, PostgresDsn, SecretStr, ValidationError, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from llm_gateway.projects.keys import decode_pepper
 
 
 class SettingsError(RuntimeError):
@@ -27,12 +29,29 @@ class Settings(BaseSettings):
     db_pool_min_size: int = Field(default=1, ge=1, le=20)
     db_pool_max_size: int = Field(default=5, ge=1, le=50)
 
+    # Keyed hash secret for project API keys. Changing it invalidates every key.
+    project_key_pepper: SecretStr
+    auth_failure_limit_per_minute: int = Field(default=10, ge=1, le=1_000)
+    # Set only behind a trusted proxy (CF-Connecting-IP behind the Cloudflare
+    # tunnel); otherwise the TCP peer address identifies the client.
+    trusted_client_ip_header: str | None = Field(default=None, pattern=r"^[A-Za-z0-9-]{1,64}$")
+
     # Owner notifier. Delivery is disabled until both Telegram values are set.
     notifier_telegram_bot_token: SecretStr | None = None
     # A numeric chat ID; negative for groups and channels.
     notifier_telegram_chat_id: str | None = Field(default=None, pattern=r"^-?\d{1,20}$")
     notifier_dedupe_window_seconds: int = Field(default=900, ge=60, le=86_400)
     notifier_max_event_age_seconds: int = Field(default=86_400, ge=3_600, le=604_800)
+
+    @field_validator("project_key_pepper")
+    @classmethod
+    def _pepper_is_strong(cls, value: SecretStr) -> SecretStr:
+        decode_pepper(value.get_secret_value())
+        return value
+
+    @property
+    def project_key_pepper_bytes(self) -> bytes:
+        return decode_pepper(self.project_key_pepper.get_secret_value())
 
     @property
     def telegram_configured(self) -> bool:

@@ -6,6 +6,7 @@ and provider error text must never reach an alert.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from datetime import datetime
@@ -22,6 +23,8 @@ DEDUPE_KEY_MAX_CHARS = 200
 # Bounds how long raising an alert may wait for a pooled connection.
 _RAISE_TIMEOUT_SECONDS = 2.0
 logger = logging.getLogger(__name__)
+# Holds alert tasks raised from request paths until they finish.
+_background_alerts: set[asyncio.Task[None]] = set()
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,6 +102,36 @@ async def raise_alert(
             )
     except Exception as exc:
         logger.warning("Alert %s could not be recorded: %s", event_type, type(exc).__name__)
+
+
+def raise_alert_soon(
+    pool: AsyncConnectionPool,
+    *,
+    event_type: str,
+    severity: Severity,
+    summary: str,
+    key: str,
+    dedupe_window_seconds: int,
+) -> None:
+    """Record an alert in the background so a request never waits for it."""
+    task = asyncio.get_running_loop().create_task(
+        raise_alert(
+            pool,
+            event_type=event_type,
+            severity=severity,
+            summary=summary,
+            key=key,
+            dedupe_window_seconds=dedupe_window_seconds,
+        )
+    )
+    _background_alerts.add(task)
+    task.add_done_callback(_background_alerts.discard)
+
+
+async def wait_for_background_alerts() -> None:
+    """Let in-flight background alerts finish (shutdown and tests)."""
+    if _background_alerts:
+        await asyncio.gather(*_background_alerts, return_exceptions=True)
 
 
 async def get_event(connection: AsyncConnection, event_id: int) -> AlertEvent | None:

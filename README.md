@@ -33,8 +33,8 @@ gateway solves them once.
 | Area | Status |
 |---|---|
 | Foundation: settings, RFC 9457 errors, health, migrations | Done |
-| Owner notifier (Telegram) | In review |
-| Project contracts, per-environment API keys, admin CLI | Proposed |
+| Owner notifier (Telegram) | Done |
+| Project contracts, per-environment API keys, admin CLI | In review |
 | Request-to-grant allocation | Proposed |
 | Direct calls, model profiles, usage ledger, budget enforcement, Python client | Planned |
 | Streaming with function tools, hosted tools | Planned |
@@ -97,6 +97,29 @@ The worker sends owner alerts to Telegram.
 
 Without these values, alerts stay pending and expire after 24 hours; the
 gateway keeps working.
+
+### Registering a project
+
+Each project gets a contract and one API key per environment (`production` and
+`development`). Keys are printed once and never stored, so save them right
+away.
+
+```bash
+docker compose run --rm api llm-gateway-admin project register my_project --display-name "My Project"
+docker compose run --rm api llm-gateway-admin project set-request my_project --env production --rpm 60 --concurrency 4
+docker compose run --rm api llm-gateway-admin project rotate-key my_project --env production --grace-minutes 30
+docker compose run --rm api llm-gateway-admin            # interactive menu with every action
+```
+
+Projects send their key as `Authorization: Bearer <key>`.
+`GET /v1/projects/self` confirms which project and environment a key belongs
+to.
+
+- `PROJECT_KEY_PEPPER` signs every key hash. Back it up with the database;
+  changing or losing it invalidates every key.
+- Behind a reverse proxy or tunnel, set `TRUSTED_CLIENT_IP_HEADER` (for
+  example `CF-Connecting-IP` for a Cloudflare tunnel), so failed-attempt
+  throttling counts real clients, not the proxy.
 
 Stop the stack with `docker compose down`. Leave out `-v` to keep the local
 database.

@@ -33,6 +33,8 @@ uv run ruff format                     # apply formatting
 docker compose up -d --build           # local stack: migrate, then API on 127.0.0.1:8360 and worker
 curl -fsS http://127.0.0.1:8360/health/ready
 docker compose run --rm api llm-gateway-admin notifier test   # one real alert (needs NOTIFIER_TELEGRAM_*)
+docker compose run --rm api llm-gateway-admin                  # interactive admin menu
+docker compose run --rm api llm-gateway-admin project --help   # registry subcommands
 ```
 
 ## Architecture map
@@ -42,13 +44,21 @@ docker compose run --rm api llm-gateway-admin notifier test   # one real alert (
 - `src/llm_gateway/api/`:
   - `app.py`: the app factory, request IDs, health routes.
   - `problems.py`: RFC 9457 errors and `GatewayError`.
+  - `auth.py`: the bearer-key `require_project` dependency, failed-attempt
+    throttling, and the 10 s contract cache with per-project quarantine.
+  - `routes_projects.py`: `GET /v1/projects/self`.
+- `src/llm_gateway/projects/`:
+  - `contract.py`: contract version 1, strict, with unknown fields rejected.
+  - `keys.py`: the key format and HMAC storage.
+  - `service.py`: versioned edits under row locks, keys, import and export.
 - `src/llm_gateway/notifier/`:
   - `events.py`: `raise_alert`, the only way gateway code alerts the owner. It
     is best-effort and deduplicated per key.
   - `channels.py`: the channel interface and the Telegram adapter.
   - `delivery.py`: claiming, retries, and expiry, run by the worker.
 - `src/llm_gateway/worker.py`: the background worker process.
-- `src/llm_gateway/admin/`: the `llm-gateway-admin` CLI.
+- `src/llm_gateway/admin/`: the `llm-gateway-admin` CLI. Subcommands and the
+  menu share `project_commands.py`.
 - `src/llm_gateway/db/`:
   - `pool.py`: the async pool.
   - `migrate.py`: the checksummed, forward-only runner.
@@ -64,6 +74,10 @@ docker compose run --rm api llm-gateway-admin notifier test   # one real alert (
   reviewing current official provider documentation.
 - Uncertain provider execution is never replayed. Stable call IDs return the
   recorded outcome.
+- Every contract change goes through the registry service, which writes a
+  new version. Never edit `contract_versions` or `project_keys` by hand.
+- Raw project keys are printed once, at issue, and never stored or logged.
+  `PROJECT_KEY_PEPPER` must never change; changing it invalidates every key.
 - Every limit and budget is a backend grant. A project's contract holds only
   its request; projects never set their own limits.
 - Logs hold IDs, counts, durations, and states only. HTTP client libraries are

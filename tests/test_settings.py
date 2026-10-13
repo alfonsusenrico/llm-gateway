@@ -3,6 +3,12 @@ from __future__ import annotations
 import pytest
 
 from llm_gateway.settings import SettingsError, load_settings
+from tests.conftest import TEST_PEPPER
+
+
+@pytest.fixture(autouse=True)
+def _pepper(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PROJECT_KEY_PEPPER", TEST_PEPPER)
 
 
 def test_production_is_the_default_environment(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -78,3 +84,22 @@ def test_token_is_hidden_in_the_settings_repr(monkeypatch: pytest.MonkeyPatch) -
 
     assert settings.telegram_configured is True
     assert "secret-token-value" not in repr(settings)
+
+
+def test_missing_pepper_is_named(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", "postgresql://gateway:secret@db:5432/gateway")
+    monkeypatch.delenv("PROJECT_KEY_PEPPER")
+
+    with pytest.raises(SettingsError, match="PROJECT_KEY_PEPPER"):
+        load_settings()
+
+
+def test_short_pepper_is_rejected_without_echo(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", "postgresql://gateway:secret@db:5432/gateway")
+    monkeypatch.setenv("PROJECT_KEY_PEPPER", "c2hvcnQtcGVwcGVy")
+
+    with pytest.raises(SettingsError) as raised:
+        load_settings()
+
+    assert "PROJECT_KEY_PEPPER" in str(raised.value)
+    assert "c2hvcnQ" not in str(raised.value)

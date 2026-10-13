@@ -10,13 +10,16 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 
+from llm_gateway.api.auth import Authenticator
 from llm_gateway.api.problems import (
     install_problem_handlers,
     problem_response,
     unhandled_error_response,
 )
+from llm_gateway.api.routes_projects import router as projects_router
 from llm_gateway.db.pool import create_pool, database_ready
 from llm_gateway.logging_setup import configure_logging, request_id_var
+from llm_gateway.notifier.events import wait_for_background_alerts
 from llm_gateway.settings import Settings, load_settings
 
 REQUEST_ID_HEADER = "X-Request-ID"
@@ -37,9 +40,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # still unavailable; readiness reports it.
         await pool.open(wait=False)
         app.state.db_pool = pool
+        app.state.authenticator = Authenticator(settings, pool)
         try:
             yield
         finally:
+            await wait_for_background_alerts()
             await pool.close()
 
     app = FastAPI(
@@ -50,6 +55,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         redoc_url=None,
     )
     install_problem_handlers(app)
+    app.include_router(projects_router)
 
     @app.middleware("http")
     async def assign_request_id(

@@ -14,6 +14,8 @@ from datetime import UTC, datetime
 from llm_gateway.settings import Settings
 
 request_id_var: ContextVar[str] = ContextVar("request_id", default="")
+# "<project_id>/<environment>" once a request is authenticated.
+project_context_var: ContextVar[str] = ContextVar("project_context", default="")
 # HTTP client libraries log full request URLs at INFO and DEBUG, and some provider
 # URLs carry credentials (the Telegram bot token is part of the path).
 _URL_LOGGING_LIBRARIES = ("httpx2", "httpcore2")
@@ -22,6 +24,7 @@ _URL_LOGGING_LIBRARIES = ("httpx2", "httpcore2")
 class _RequestIdFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         record.request_id = request_id_var.get()
+        record.project = project_context_var.get()
         return True
 
 
@@ -36,6 +39,9 @@ class _JsonFormatter(logging.Formatter):
         request_id = getattr(record, "request_id", "")
         if request_id:
             entry["request_id"] = request_id
+        project = getattr(record, "project", "")
+        if project:
+            entry["project"] = project
         if record.exc_info and record.exc_info[0] is not None:
             # Only the exception class: messages can echo provider text or values.
             entry["exception"] = record.exc_info[0].__name__
