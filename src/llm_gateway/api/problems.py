@@ -28,6 +28,7 @@ class GatewayError(Exception):
         title: str,
         detail: str | None = None,
         retry_after_seconds: int | None = None,
+        headers: dict[str, str] | None = None,
     ) -> None:
         super().__init__(code)
         self.code = code
@@ -35,6 +36,7 @@ class GatewayError(Exception):
         self.title = title
         self.detail = detail
         self.retry_after_seconds = retry_after_seconds
+        self.headers = headers or {}
 
 
 def problem_response(
@@ -45,6 +47,7 @@ def problem_response(
     detail: str | None = None,
     errors: list[dict[str, str]] | None = None,
     retry_after_seconds: int | None = None,
+    headers: dict[str, str] | None = None,
 ) -> JSONResponse:
     body: dict[str, object] = {
         "type": _PROBLEM_TYPE_BASE + code.replace("_", "-"),
@@ -57,7 +60,7 @@ def problem_response(
         body["detail"] = detail
     if errors:
         body["errors"] = errors
-    headers = {}
+    headers = dict(headers or {})
     if retry_after_seconds is not None and status in {429, 503}:
         headers["Retry-After"] = str(retry_after_seconds)
     return JSONResponse(body, status_code=status, media_type=PROBLEM_CONTENT_TYPE, headers=headers)
@@ -77,6 +80,7 @@ def install_problem_handlers(app: FastAPI) -> None:
             title=exc.title,
             detail=exc.detail,
             retry_after_seconds=exc.retry_after_seconds,
+            headers=exc.headers,
         )
 
     @app.exception_handler(StarletteHTTPException)
