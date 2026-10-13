@@ -43,7 +43,6 @@ gateway solves them once.
 | Streamed responses | Done |
 | Function tools | Planned |
 | Async background jobs, flex tier, dynamic allocation | Planned |
-| Embeddings | Planned |
 
 OpenAI is the first provider; the adapter interface and model catalogue are
 designed for more.
