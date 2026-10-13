@@ -77,8 +77,10 @@ The worker sends owner alerts to Telegram.
 
 1. Create a dedicated bot with [@BotFather](https://t.me/BotFather) and send
    it a message.
-2. Read your chat ID from
-   `https://api.telegram.org/bot<token>/getUpdates`.
+2. Read your chat ID (`message.chat.id`) from
+   `https://api.telegram.org/bot<token>/getUpdates?allowed_updates=["message"]`.
+   The filter matters: Telegram remembers the last `allowed_updates` a bot
+   used, and without it the result can stay empty.
 3. Set both values in `.env`:
 
    ```bash
