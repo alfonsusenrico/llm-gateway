@@ -62,7 +62,8 @@ the `httpx2` and `httpcore2` loggers at WARNING.
 - **Test:** `docker compose run --rm -T api llm-gateway-admin notifier test`
   printed `delivered` and exited 0. Both stored test events (one left
   `pending` by the earlier no-channel run) became `delivered` after one
-  attempt each, and the owner received both messages.
+  attempt each. Telegram accepted both with HTTP 200; the owner confirms
+  receipt.
 - **Token check:** grepping the API and worker logs for Telegram URLs or token
   patterns found 0 matches.
 
