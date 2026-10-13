@@ -62,7 +62,32 @@ async with GatewayClient("http://llm-gateway:8000", api_key) as gateway:
     print(shape.output_json)
 ```
 
-`SyncGatewayClient` offers the same interface without `async`.
+### Streaming
+
+```python
+from llm_gateway_client import Completed, TextDelta
+
+async for event in gateway.responses.stream(
+    provider_call_id=f"reply-{message_id}",
+    operation="chat_reply",
+    profile="chat",
+    input="Tell me about the weather in one sentence.",
+):
+    if isinstance(event, TextDelta):
+        print(event.delta, end="", flush=True)
+    elif isinstance(event, Completed):
+        answer = event.result.output_text  # authoritative text, usage, and cost
+```
+
+Events are `Started`, `TextDelta`, `RefusalDelta`, and `Completed`. A problem
+raises the same typed errors as `create`. Refusals before `Started` are retried
+like a direct call. If the connection drops after `Started`, the client
+resubmits the same call ID and finishes with the replayed `Completed`. Deltas
+from the lost connection may be partial, so always use `Completed.result` as
+the final text.
+
+`SyncGatewayClient` offers the same interface without `async`, except
+streaming.
 
 Choose a `provider_call_id` that identifies the unit of work, for example the
 report and step. Resubmitting the same ID is always safe: a finished call

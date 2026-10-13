@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Literal, Protocol
 
@@ -46,10 +47,36 @@ class ProviderFailure:
     provider_request_id: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class StreamStarted:
+    """The provider accepted the call; from here a failure may follow execution."""
+
+    provider_request_id: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class StreamText:
+    delta: str
+
+
+@dataclass(frozen=True, slots=True)
+class StreamRefusal:
+    delta: str
+
+
+StreamEvent = StreamStarted | StreamText | StreamRefusal | ProviderSuccess | ProviderFailure
+
+
 class ProviderAdapter(Protocol):
     async def execute(
         self, resolved: ResolvedCall, request: ResponseRequest
     ) -> ProviderSuccess | ProviderFailure: ...
+
+    def execute_stream(
+        self, resolved: ResolvedCall, request: ResponseRequest
+    ) -> AsyncIterator[StreamEvent]:
+        """Yield events and end with exactly one ProviderSuccess or ProviderFailure."""
+        ...
 
 
 @dataclass(frozen=True, slots=True)

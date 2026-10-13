@@ -4,6 +4,7 @@ import asyncio
 import dataclasses
 import logging
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any
 
 import anyio
@@ -13,7 +14,13 @@ from psycopg_pool import AsyncConnectionPool
 from llm_gateway.allocation.store import recompute
 from llm_gateway.catalogue.model import get_catalogue
 from llm_gateway.catalogue.pricing import TokenUsage
-from llm_gateway.llm.providers import ProviderAdapter, ProviderFailure, ProviderSuccess
+from llm_gateway.llm.providers import (
+    ProviderAdapter,
+    ProviderFailure,
+    ProviderSuccess,
+    StreamStarted,
+    StreamText,
+)
 from llm_gateway.llm.results import ResultStore, delete_expired_results
 from llm_gateway.llm.service import CallDeps
 from llm_gateway.llm.stub_adapter import StubAdapter
@@ -38,6 +45,18 @@ class FakeOpenAI:
         if self.delay:
             await anyio.sleep(self.delay)
         return self.result
+
+    async def execute_stream(self, resolved: Any, request: Any) -> AsyncIterator[Any]:
+        self.calls += 1
+        if isinstance(self.result, ProviderFailure):
+            yield self.result
+            return
+        yield StreamStarted("req_stream")
+        for word in self.result.output_text.split(" "):
+            if self.delay:
+                await anyio.sleep(self.delay)
+            yield StreamText(word + " ")
+        yield self.result
 
 
 def _luna_success() -> ProviderSuccess:
@@ -96,13 +115,20 @@ class Calls:
             return await cursor.fetchall()
 
 
-@pytest.fixture
-async def calls(migrated_pool: AsyncConnectionPool) -> AsyncIterator[Calls]:
-    gateway = Gateway(migrated_pool)
+@asynccontextmanager
+async def calls_context(pool: AsyncConnectionPool) -> AsyncIterator[Calls]:
+    """A gateway on the migrated test schema, with project alpha registered and granted."""
+    gateway = Gateway(pool)
     async with gateway.client:
         calls = Calls(gateway)
         await calls.setup()
         yield calls
+
+
+@pytest.fixture
+async def calls(migrated_pool: AsyncConnectionPool) -> AsyncIterator[Calls]:
+    async with calls_context(migrated_pool) as context:
+        yield context
 
 
 async def test_stub_call_returns_answer_usage_cost_and_allowance(calls: Calls) -> None:

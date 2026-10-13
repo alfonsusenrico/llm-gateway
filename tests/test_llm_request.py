@@ -51,6 +51,7 @@ def _code(raised: pytest.ExceptionInfo[CallRejectedError]) -> str:
         {"text_format": {"type": "json_schema", "name": "x"}},  # schema missing
         {"text_format": {"type": "text", "name": "x"}},  # schema fields on text
         {"surprise": 1},
+        {"stream": "maybe"},
         {"provider_call_id": "has spaces"},
         {"operation": "Summarise"},
         {
@@ -77,6 +78,13 @@ def test_invalid_requests_are_rejected(overrides: dict[str, Any]) -> None:
 def test_fingerprint_is_stable_and_sensitive() -> None:
     assert _request().fingerprint() == _request().fingerprint()
     assert _request().fingerprint() != _request(input="Hello!").fingerprint()
+
+
+def test_stream_defaults_off_and_never_changes_the_fingerprint() -> None:
+    # A call ID may be replayed streamed or not, so both must match one call.
+    assert _request().stream is False
+    assert _request(stream=True).stream is True
+    assert _request(stream=True).fingerprint() == _request().fingerprint()
 
 
 def test_profile_settings_resolve_with_request_overrides() -> None:

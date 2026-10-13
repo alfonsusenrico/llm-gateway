@@ -17,6 +17,7 @@ from llm_gateway_client import (
     RetryableError,
     RetryPolicy,
     SyncGatewayClient,
+    __version__,
 )
 from llm_gateway_client.errors import error_from_problem
 
@@ -177,7 +178,7 @@ async def test_requests_identify_the_client() -> None:
 
     await call(client(script, []))
 
-    assert script.headers[0]["User-Agent"] == "llm-gateway-client/0.1.0"
+    assert script.headers[0]["User-Agent"] == f"llm-gateway-client/{__version__}"
     assert script.headers[0]["Authorization"] == "Bearer lgw.dev.key"
 
 
