@@ -30,8 +30,9 @@ uv sync --locked
 docker compose up -d db                # database for tests marked db
 ./scripts/check                        # every check: lock, format, lint, pyright, tests, compose, OpenSpec
 uv run ruff format                     # apply formatting
-docker compose up -d --build           # local stack; API on 127.0.0.1:8360
+docker compose up -d --build           # local stack: migrate, then API on 127.0.0.1:8360 and worker
 curl -fsS http://127.0.0.1:8360/health/ready
+docker compose run --rm api llm-gateway-admin notifier test   # one real alert (needs NOTIFIER_TELEGRAM_*)
 ```
 
 ## Architecture map
@@ -41,6 +42,13 @@ curl -fsS http://127.0.0.1:8360/health/ready
 - `src/llm_gateway/api/`:
   - `app.py`: the app factory, request IDs, health routes.
   - `problems.py`: RFC 9457 errors and `GatewayError`.
+- `src/llm_gateway/notifier/`:
+  - `events.py`: `raise_alert`, the only way gateway code alerts the owner. It
+    is best-effort and deduplicated per key.
+  - `channels.py`: the channel interface and the Telegram adapter.
+  - `delivery.py`: claiming, retries, and expiry, run by the worker.
+- `src/llm_gateway/worker.py`: the background worker process.
+- `src/llm_gateway/admin/`: the `llm-gateway-admin` CLI.
 - `src/llm_gateway/db/`:
   - `pool.py`: the async pool.
   - `migrate.py`: the checksummed, forward-only runner.
@@ -58,7 +66,12 @@ curl -fsS http://127.0.0.1:8360/health/ready
   recorded outcome.
 - Every limit and budget is a backend grant. A project's contract holds only
   its request; projects never set their own limits.
-- Logs hold IDs, counts, durations, and states only.
+- Logs hold IDs, counts, durations, and states only. HTTP client libraries are
+  capped at WARNING because they log request URLs, and some URLs carry
+  credentials.
+- Alerts carry fixed sentences and identifiers only. Callers build the
+  deduplication key with `dedupe_key(event_type, *ids)`, and nothing on a
+  request path waits for delivery.
 - Migrations run as the compose `migrate` step, never at app startup. An
   applied migration file never changes.
 - Live provider calls cost real money: only run them for tasks the owner

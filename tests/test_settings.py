@@ -38,3 +38,43 @@ def test_pool_bounds_must_be_ordered(monkeypatch: pytest.MonkeyPatch) -> None:
 
     with pytest.raises(SettingsError, match="DB_POOL_MIN_SIZE"):
         load_settings()
+
+
+def test_telegram_values_must_be_set_together(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", "postgresql://gateway:secret@db:5432/gateway")
+    monkeypatch.setenv("NOTIFIER_TELEGRAM_BOT_TOKEN", "123:secret-token-value")
+    monkeypatch.delenv("NOTIFIER_TELEGRAM_CHAT_ID", raising=False)
+
+    with pytest.raises(SettingsError) as raised:
+        load_settings()
+
+    assert "NOTIFIER_TELEGRAM_CHAT_ID" in str(raised.value)
+    assert "secret-token-value" not in str(raised.value)
+
+
+def test_empty_telegram_values_mean_unconfigured(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", "postgresql://gateway:secret@db:5432/gateway")
+    monkeypatch.setenv("NOTIFIER_TELEGRAM_BOT_TOKEN", "")
+    monkeypatch.setenv("NOTIFIER_TELEGRAM_CHAT_ID", "")
+
+    assert load_settings().telegram_configured is False
+
+
+def test_chat_id_must_be_numeric(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", "postgresql://gateway:secret@db:5432/gateway")
+    monkeypatch.setenv("NOTIFIER_TELEGRAM_BOT_TOKEN", "123:secret-token-value")
+    monkeypatch.setenv("NOTIFIER_TELEGRAM_CHAT_ID", "@my_channel")
+
+    with pytest.raises(SettingsError, match="NOTIFIER_TELEGRAM_CHAT_ID"):
+        load_settings()
+
+
+def test_token_is_hidden_in_the_settings_repr(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", "postgresql://gateway:secret@db:5432/gateway")
+    monkeypatch.setenv("NOTIFIER_TELEGRAM_BOT_TOKEN", "123:secret-token-value")
+    monkeypatch.setenv("NOTIFIER_TELEGRAM_CHAT_ID", "-1001")
+
+    settings = load_settings()
+
+    assert settings.telegram_configured is True
+    assert "secret-token-value" not in repr(settings)

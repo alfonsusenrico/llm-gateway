@@ -14,6 +14,9 @@ from datetime import UTC, datetime
 from llm_gateway.settings import Settings
 
 request_id_var: ContextVar[str] = ContextVar("request_id", default="")
+# HTTP client libraries log full request URLs at INFO and DEBUG, and some provider
+# URLs carry credentials (the Telegram bot token is part of the path).
+_URL_LOGGING_LIBRARIES = ("httpx2", "httpcore2")
 
 
 class _RequestIdFilter(logging.Filter):
@@ -51,3 +54,9 @@ def configure_logging(settings: Settings) -> None:
     root = logging.getLogger()
     root.handlers[:] = [handler]
     root.setLevel(settings.log_level.upper())
+    limit_library_logging()
+
+
+def limit_library_logging() -> None:
+    for name in _URL_LOGGING_LIBRARIES:
+        logging.getLogger(name).setLevel(logging.WARNING)

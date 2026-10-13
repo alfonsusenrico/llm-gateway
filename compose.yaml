@@ -6,6 +6,10 @@ x-gateway-environment: &gateway-environment
   # Containers reach the database by service name; the host-side DATABASE_URL in
   # .env is for running tools outside Docker.
   DATABASE_URL: postgresql://${POSTGRES_USER:-llm_gateway}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@db:5432/${POSTGRES_DB:-llm_gateway}
+  NOTIFIER_TELEGRAM_BOT_TOKEN: ${NOTIFIER_TELEGRAM_BOT_TOKEN:-}
+  NOTIFIER_TELEGRAM_CHAT_ID: ${NOTIFIER_TELEGRAM_CHAT_ID:-}
+  NOTIFIER_DEDUPE_WINDOW_SECONDS: ${NOTIFIER_DEDUPE_WINDOW_SECONDS:-900}
+  NOTIFIER_MAX_EVENT_AGE_SECONDS: ${NOTIFIER_MAX_EVENT_AGE_SECONDS:-86400}
 
 services:
   db:
@@ -38,6 +42,9 @@ services:
       db:
         condition: service_healthy
     restart: "no"
+    # The image's health check probes the API port, which only the api service serves.
+    healthcheck:
+      disable: true
 
   api:
     image: llm-gateway:${APP_REVISION:-local}
@@ -48,6 +55,18 @@ services:
         condition: service_completed_successfully
     ports:
       - "127.0.0.1:${API_HOST_PORT:-8360}:8000"
+
+  worker:
+    image: llm-gateway:${APP_REVISION:-local}
+    command: ["llm-gateway-worker"]
+    restart: unless-stopped
+    environment: *gateway-environment
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    stop_grace_period: 15s
+    healthcheck:
+      disable: true
 
 volumes:
   db-data:
