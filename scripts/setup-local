@@ -12,7 +12,7 @@ password="$(python3 -c 'import secrets; print(secrets.token_urlsafe(24))')"
 pepper="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
 # A Fernet key is the padded urlsafe base64 of 32 random bytes.
 result_key="$(python3 -c 'import base64, os; print(base64.urlsafe_b64encode(os.urandom(32)).decode())')"
-port="5433"
+port="54330"
 umask 077
 sed \
   -e "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=${password}|" \

@@ -38,8 +38,8 @@ gateway solves them once.
 | Request-to-grant allocation | In review |
 | Model catalogue and pricing | Done |
 | Call admission, usage ledger, budget enforcement | Done |
-| Direct OpenAI calls, stub provider, result replay | In review |
-| Python client | Proposed |
+| Direct OpenAI calls, stub provider, result replay | Done |
+| Python client | In review |
 | Streaming with function tools, hosted tools | Planned |
 | Async background jobs, flex tier, dynamic allocation | Planned |
 | Embeddings | Planned |
@@ -134,6 +134,12 @@ docker compose run --rm api llm-gateway-admin project set-profile my_project cha
 
 To add a model or change a price, edit `src/llm_gateway/catalogue/models.json`
 or add a dated entry to `prices.json`, then run `./scripts/check`.
+
+### Python client
+
+Projects should use the typed client in [`clients/python`](clients/python/README.md).
+It resubmits the same call ID only when that is safe, raises typed errors, and
+keeps its concurrency within the project's grant.
 
 ### Making a call
 
