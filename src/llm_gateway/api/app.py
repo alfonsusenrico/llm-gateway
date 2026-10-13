@@ -16,6 +16,8 @@ from llm_gateway.api.problems import (
     problem_response,
     unhandled_error_response,
 )
+from llm_gateway.api.routes_allocation import GrantDirectory
+from llm_gateway.api.routes_allocation import router as allocation_router
 from llm_gateway.api.routes_projects import router as projects_router
 from llm_gateway.db.pool import create_pool, database_ready
 from llm_gateway.logging_setup import configure_logging, request_id_var
@@ -41,6 +43,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         await pool.open(wait=False)
         app.state.db_pool = pool
         app.state.authenticator = Authenticator(settings, pool)
+        app.state.grant_directory = GrantDirectory(pool)
         try:
             yield
         finally:
@@ -56,6 +59,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     install_problem_handlers(app)
     app.include_router(projects_router)
+    app.include_router(allocation_router)
 
     @app.middleware("http")
     async def assign_request_id(

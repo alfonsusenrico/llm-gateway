@@ -59,3 +59,17 @@ def test_wrong_secret_or_pepper_does_not_match() -> None:
 def test_weak_or_invalid_pepper_is_rejected(encoded: str) -> None:
     with pytest.raises(ValueError, match="pepper"):
         decode_pepper(encoded)
+
+
+def test_money_formatting() -> None:
+    from decimal import Decimal
+
+    from llm_gateway.money import format_usd, to_micro_usd
+
+    assert to_micro_usd(Decimal("3.50")) == 3_500_000
+    assert [format_usd(v) for v in (0, 1_500_000, 125, 5_000_000)] == [
+        "0.00",
+        "1.50",
+        "0.000125",
+        "5.00",
+    ]

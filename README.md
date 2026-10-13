@@ -34,8 +34,8 @@ gateway solves them once.
 |---|---|
 | Foundation: settings, RFC 9457 errors, health, migrations | Done |
 | Owner notifier (Telegram) | Done |
-| Project contracts, per-environment API keys, admin CLI | In review |
-| Request-to-grant allocation | Proposed |
+| Project contracts, per-environment API keys, admin CLI | Done |
+| Request-to-grant allocation | In review |
 | Direct calls, model profiles, usage ledger, budget enforcement, Python client | Planned |
 | Streaming with function tools, hosted tools | Planned |
 | Async background jobs, flex tier, dynamic allocation | Planned |
@@ -111,9 +111,19 @@ docker compose run --rm api llm-gateway-admin project rotate-key my_project --en
 docker compose run --rm api llm-gateway-admin            # interactive menu with every action
 ```
 
+Grants are recomputed after every change. To see them all, run
+`llm-gateway-admin grants show`. A heavier weight wins more of a contested
+dimension:
+
+```bash
+docker compose run --rm api llm-gateway-admin grants show
+docker compose run --rm api llm-gateway-admin project set-weight my_project 3
+```
+
 Projects send their key as `Authorization: Bearer <key>`.
 `GET /v1/projects/self` confirms which project and environment a key belongs
-to.
+to. `GET /v1/allocation` shows what that key requested, what it was granted,
+and why anything was reduced.
 
 - `PROJECT_KEY_PEPPER` signs every key hash. Back it up with the database;
   changing or losing it invalidates every key.

@@ -93,10 +93,37 @@ def _parser() -> argparse.ArgumentParser:
     import_ = actions.add_parser("import", help="save a JSON contract as a new version")
     import_.add_argument("file", type=Path)
     import_.add_argument("--note")
+    weight = actions.add_parser("set-weight", help="set the backend weight used to share capacity")
+    weight.add_argument("project_id")
+    weight.add_argument("weight", type=int)
+
+    grants = groups.add_parser("grants", help="allocation grants")
+    grant_actions = grants.add_subparsers(dest="action", required=True)
+    grant_actions.add_parser("show", help="every grant with requested values and pool use")
+    grant_actions.add_parser("recompute", help="recompute grants now")
     return parser
 
 
+# Actions that can change a contract, status, or weight; grants are recomputed after them.
+_GRANT_INPUT_ACTIONS = frozenset(
+    {"register", "set-request", "set-profile", "remove-profile", "enable", "disable", "import"}
+)
+
+
+def _with_recompute(action: Action) -> Action:
+    async def run(pool: AsyncConnectionPool, settings: Settings) -> str:
+        result = await action(pool, settings)
+        return f"{result}\n{await projects.recompute_grants(pool, settings)}"
+
+    return run
+
+
 def _project_action(args: argparse.Namespace) -> Action:
+    action = _project_action_only(args)
+    return _with_recompute(action) if args.action in _GRANT_INPUT_ACTIONS else action
+
+
+def _project_action_only(args: argparse.Namespace) -> Action:
     match args.action:
         case "register":
             return lambda pool, settings: projects.register(
@@ -146,6 +173,10 @@ def _project_action(args: argparse.Namespace) -> Action:
         case "import":
             text = args.file.read_text(encoding="utf-8")
             return lambda pool, _settings: projects.import_contract(pool, text, note=args.note)
+        case "set-weight":
+            return lambda pool, settings: projects.set_weight(
+                pool, settings, args.project_id, args.weight
+            )
     raise ValueError(f"unknown project action {args.action}")
 
 
@@ -188,6 +219,9 @@ def main(argv: list[str] | None = None) -> int:
         return asyncio.run(run_menu(settings))
     if args.group == "notifier":
         return asyncio.run(run_with_pool(settings, notifier_test))
+    if args.group == "grants":
+        action = projects.show_grants if args.action == "show" else projects.recompute_grants
+        return asyncio.run(run_with_pool(settings, action))
     try:
         action = _project_action(args)
     except OSError as exc:

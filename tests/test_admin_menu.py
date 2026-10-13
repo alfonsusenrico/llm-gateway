@@ -91,3 +91,14 @@ async def test_change_request_through_the_menu(migrated_pool: AsyncConnectionPoo
 
     contract, version = await service.get_contract(migrated_pool, "personal_agent")
     assert (version, contract.request.development.concurrency) == (2, 3)
+
+
+async def test_grants_and_weight_through_the_menu(migrated_pool: AsyncConnectionPool) -> None:
+    script = Script("3", "alpha", "Alpha", "14", "alpha", "0", "2", "13", "0")
+
+    await _run(migrated_pool, script)
+
+    assert "Grants recomputed: 2 grants, 0 reduced." in script.text
+    assert "Enter a whole number of at least 1." in script.text
+    assert "Weight of alpha is now 2." in script.text
+    assert "alpha/production" in script.text

@@ -35,6 +35,7 @@ curl -fsS http://127.0.0.1:8360/health/ready
 docker compose run --rm api llm-gateway-admin notifier test   # one real alert (needs NOTIFIER_TELEGRAM_*)
 docker compose run --rm api llm-gateway-admin                  # interactive admin menu
 docker compose run --rm api llm-gateway-admin project --help   # registry subcommands
+docker compose run --rm api llm-gateway-admin grants show      # every grant and pool use
 ```
 
 ## Architecture map
@@ -47,6 +48,13 @@ docker compose run --rm api llm-gateway-admin project --help   # registry subcom
   - `auth.py`: the bearer-key `require_project` dependency, failed-attempt
     throttling, and the 10 s contract cache with per-project quarantine.
   - `routes_projects.py`: `GET /v1/projects/self`.
+  - `routes_allocation.py`: `GET /v1/allocation`, with a 10 s grant cache.
+- `src/llm_gateway/allocation/`:
+  - `policy.py`: the pure, deterministic allocation (guaranteed minimum, then
+    weighted water-filling, in integer units).
+  - `store.py`: `recompute()` under an advisory lock, skipped when the inputs
+    hash is unchanged, with reduction and restoration alerts after commit.
+- `src/llm_gateway/money.py`: USD as integer micro-USD.
 - `src/llm_gateway/projects/`:
   - `contract.py`: contract version 1, strict, with unknown fields rejected.
   - `keys.py`: the key format and HMAC storage.
@@ -80,6 +88,13 @@ docker compose run --rm api llm-gateway-admin project --help   # registry subcom
   `PROJECT_KEY_PEPPER` must never change; changing it invalidates every key.
 - Every limit and budget is a backend grant. A project's contract holds only
   its request; projects never set their own limits.
+  - Capacity and minimums are `ALLOCATION_*` and `GLOBAL_MONTHLY_BUDGET_USD`
+    settings; weights live on `projects.weight`.
+  - Any change to their inputs must call `allocation.store.recompute()`. The
+    admin CLI does so after contract, status, and weight changes, and the
+    worker every 60 s.
+  - Money is integer micro-USD internally and a decimal string at the API.
+    Never use floats.
 - Logs hold IDs, counts, durations, and states only. HTTP client libraries are
   capped at WARNING because they log request URLs, and some URLs carry
   credentials.

@@ -103,3 +103,19 @@ def test_short_pepper_is_rejected_without_echo(monkeypatch: pytest.MonkeyPatch) 
 
     assert "PROJECT_KEY_PEPPER" in str(raised.value)
     assert "c2hvcnQ" not in str(raised.value)
+
+
+def test_minimum_above_capacity_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", "postgresql://gateway:secret@db:5432/gateway")
+    monkeypatch.setenv("ALLOCATION_CAPACITY_CONCURRENCY", "2")
+    monkeypatch.setenv("ALLOCATION_MIN_CONCURRENCY", "3")
+
+    with pytest.raises(SettingsError, match="ALLOCATION_MIN_CONCURRENCY"):
+        load_settings()
+
+
+def test_budget_settings_are_decimals(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", "postgresql://gateway:secret@db:5432/gateway")
+    monkeypatch.setenv("GLOBAL_MONTHLY_BUDGET_USD", "5.00")
+
+    assert str(load_settings().global_monthly_budget_usd) == "5.00"

@@ -12,7 +12,7 @@ from llm_gateway.projects.contract import Environment
 
 router = APIRouter(prefix="/v1/projects", tags=["projects"])
 
-_AUTH_RESPONSES: dict[int | str, dict[str, str]] = {
+AUTH_RESPONSES: dict[int | str, dict[str, str]] = {
     401: {
         "description": "Key missing, malformed, or invalid (`key_missing`, `key_malformed`, `key_invalid`)."
     },
@@ -29,7 +29,7 @@ class ProjectSelf(BaseModel):
     contract_version: int
 
 
-@router.get("/self", responses=_AUTH_RESPONSES)
+@router.get("/self", responses=AUTH_RESPONSES)
 async def project_self(
     identity: Annotated[ProjectIdentity, Depends(require_project)],
 ) -> ProjectSelf:

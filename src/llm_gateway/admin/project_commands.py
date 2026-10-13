@@ -14,9 +14,12 @@ from typing import Any
 
 from psycopg_pool import AsyncConnectionPool
 
+from llm_gateway.allocation import store as allocation
+from llm_gateway.money import format_usd
 from llm_gateway.projects import service
 from llm_gateway.projects.contract import ContractError, Environment, parse_contract
 from llm_gateway.projects.keys import IssuedKey
+from llm_gateway.settings import Settings
 
 
 @dataclass(frozen=True, slots=True)
@@ -220,3 +223,62 @@ async def import_contract(pool: AsyncConnectionPool, text: str, *, note: str | N
             f"{exc} Register it first with `llm-gateway-admin project register`."
         ) from None
     return f"Imported a new version of {contract.project_id}; keys are unchanged."
+
+
+async def recompute_grants(pool: AsyncConnectionPool, settings: Settings) -> str:
+    result = await allocation.recompute(pool, settings)
+    if not result.changed:
+        return "Grants unchanged."
+    reduced = sum(1 for grant in result.grants if grant.state == "reduced")
+    return f"Grants recomputed: {len(result.grants)} grants, {reduced} reduced."
+
+
+async def set_weight(
+    pool: AsyncConnectionPool, settings: Settings, project_id: str, weight: int
+) -> str:
+    if not 1 <= weight <= 100:
+        raise service.RegistryError("Weight must be between 1 and 100.")
+    if not await allocation.set_weight(pool, project_id, weight):
+        raise service.ProjectNotFoundError(f"Project {project_id} is not registered.")
+    grants = await recompute_grants(pool, settings)
+    return f"Weight of {project_id} is now {weight}.\n{grants}"
+
+
+async def show_grants(pool: AsyncConnectionPool, settings: Settings) -> str:
+    grants = await allocation.list_grants(pool)
+    if not grants:
+        return "No grants. Register or enable a project first."
+    requests = {pair.sort_key: pair for pair in await allocation.current_requests(pool)}
+    lines = [
+        f"{'PROJECT/ENVIRONMENT':<36} {'STATE':<8} {'RPM':>9} {'CONC':>7} "
+        f"{'BUDGET USD':>15} {'CEILING USD':>13}  REASONS"
+    ]
+    for grant in grants:
+        asked = requests.get((grant.project_id, grant.environment))
+        if asked is None:
+            continue  # Its contract changed since the last recompute.
+        rpm = f"{grant.requests_per_minute}/{asked.requests_per_minute}"
+        concurrency = f"{grant.concurrency}/{asked.concurrency}"
+        budget = (
+            f"{format_usd(grant.monthly_budget_micro_usd)}/"
+            f"{format_usd(asked.monthly_budget_micro_usd)}"
+        )
+        ceiling = format_usd(grant.per_call_cost_ceiling_micro_usd)
+        reasons = ", ".join(f"{r.dimension}:{r.code}" for r in grant.reasons) or "-"
+        pair = f"{grant.project_id}/{grant.environment}"
+        lines.append(
+            f"{pair:<36} {grant.state:<8} {rpm:>9} {concurrency:>7} {budget:>15} "
+            f"{ceiling:>13}  {reasons}"
+        )
+    capacity = allocation.capacity_pool(settings)
+    used_rpm = sum(grant.requests_per_minute for grant in grants)
+    used_concurrency = sum(grant.concurrency for grant in grants)
+    used_budget = sum(grant.monthly_budget_micro_usd for grant in grants)
+    lines.append(
+        "Granted/requested per grant. Pool use: "
+        f"requests per minute {used_rpm}/{capacity.requests_per_minute}, "
+        f"concurrency {used_concurrency}/{capacity.concurrency}, "
+        f"monthly budget {format_usd(used_budget)}/"
+        f"{format_usd(capacity.monthly_budget_micro_usd)} USD"
+    )
+    return "\n".join(lines)
