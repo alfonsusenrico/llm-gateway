@@ -81,3 +81,37 @@ async def test_disabled_delivery_is_logged_once_and_the_loop_survives_errors(
 
     assert caplog.text.count("Alert delivery is disabled") == 1
     assert "Alert delivery tick failed: PoolClosed" in caplog.text
+
+
+@pytest.mark.db
+async def test_worker_recomputes_grants_on_start(migrated_pool: AsyncConnectionPool) -> None:
+    from llm_gateway.allocation.store import list_grants
+    from llm_gateway.projects import service
+    from llm_gateway.projects.contract import parse_contract
+    from llm_gateway.projects.keys import decode_pepper
+    from tests.conftest import TEST_PEPPER
+    from tests.test_contract import contract_data
+
+    await service.register_project(
+        migrated_pool,
+        parse_contract(contract_data(project_id="alpha")),
+        actor="t",
+        pepper=decode_pepper(TEST_PEPPER),
+    )
+    stop = asyncio.Event()
+
+    async def stop_when_granted() -> None:
+        while not await list_grants(migrated_pool):
+            await anyio.sleep(0.02)
+        stop.set()
+
+    with anyio.fail_after(5):
+        async with anyio.create_task_group() as group:
+            group.start_soon(stop_when_granted)
+            group.start_soon(
+                lambda: run_worker(
+                    make_settings(), migrated_pool, None, stop, poll_interval_seconds=0.05
+                )
+            )
+
+    assert len(await list_grants(migrated_pool)) == 2

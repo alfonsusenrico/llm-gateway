@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from decimal import Decimal
+from typing import Annotated, Literal
 
 from pydantic import Field, PostgresDsn, SecretStr, ValidationError, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -12,6 +13,9 @@ from llm_gateway.projects.keys import decode_pepper
 
 class SettingsError(RuntimeError):
     """Invalid configuration. The message names variables, never their values."""
+
+
+UsdSetting = Annotated[Decimal, Field(ge=0, le=1000, decimal_places=6)]
 
 
 class Settings(BaseSettings):
@@ -35,6 +39,14 @@ class Settings(BaseSettings):
     # Set only behind a trusted proxy (CF-Connecting-IP behind the Cloudflare
     # tunnel); otherwise the TCP peer address identifies the client.
     trusted_client_ip_header: str | None = Field(default=None, pattern=r"^[A-Za-z0-9-]{1,64}$")
+
+    # Shared capacity that grants divide, and the guaranteed minimum per grant.
+    allocation_capacity_requests_per_minute: int = Field(default=120, ge=1, le=100_000)
+    allocation_capacity_concurrency: int = Field(default=8, ge=1, le=1_000)
+    global_monthly_budget_usd: UsdSetting = Decimal("5.00")
+    allocation_min_requests_per_minute: int = Field(default=5, ge=0, le=100_000)
+    allocation_min_concurrency: int = Field(default=1, ge=0, le=1_000)
+    allocation_min_monthly_budget_usd: UsdSetting = Decimal("0.10")
 
     # Owner notifier. Delivery is disabled until both Telegram values are set.
     notifier_telegram_bot_token: SecretStr | None = None
@@ -74,4 +86,15 @@ def load_settings() -> Settings:
             "Invalid settings: set both NOTIFIER_TELEGRAM_BOT_TOKEN and "
             "NOTIFIER_TELEGRAM_CHAT_ID, or neither"
         )
+    minimums = (
+        ("ALLOCATION_MIN_REQUESTS_PER_MINUTE", settings.allocation_min_requests_per_minute,
+         settings.allocation_capacity_requests_per_minute),
+        ("ALLOCATION_MIN_CONCURRENCY", settings.allocation_min_concurrency,
+         settings.allocation_capacity_concurrency),
+        ("ALLOCATION_MIN_MONTHLY_BUDGET_USD", settings.allocation_min_monthly_budget_usd,
+         settings.global_monthly_budget_usd),
+    )  # fmt: skip
+    for name, minimum, capacity in minimums:
+        if minimum > capacity:
+            raise SettingsError(f"Invalid settings: {name} exceeds its capacity")
     return settings

@@ -1,4 +1,4 @@
-"""Background worker process: delivers owner alerts; later phases add their jobs here."""
+"""Background worker process: delivers owner alerts and keeps grants current."""
 
 from __future__ import annotations
 
@@ -7,10 +7,13 @@ import contextlib
 import logging
 import signal
 import sys
+import time
+from collections.abc import Callable
 
 import httpx2
 from psycopg_pool import AsyncConnectionPool
 
+from llm_gateway.allocation.store import recompute
 from llm_gateway.db.pool import create_pool
 from llm_gateway.logging_setup import configure_logging
 from llm_gateway.notifier.channels import Channel, TelegramChannel
@@ -18,6 +21,8 @@ from llm_gateway.notifier.delivery import BATCH_SIZE, deliver_due
 from llm_gateway.settings import Settings, SettingsError, load_settings
 
 POLL_INTERVAL_SECONDS = 2.0
+# Picks up capacity settings changed by a restart; edits recompute immediately anyway.
+RECOMPUTE_INTERVAL_SECONDS = 60.0
 logger = logging.getLogger(__name__)
 
 
@@ -38,13 +43,22 @@ async def run_worker(
     stop: asyncio.Event,
     *,
     poll_interval_seconds: float = POLL_INTERVAL_SECONDS,
+    recompute_interval_seconds: float = RECOMPUTE_INTERVAL_SECONDS,
+    clock: Callable[[], float] = time.monotonic,
 ) -> None:
     """Run until `stop` is set; the batch in progress always finishes first."""
     if channel is None:
         logger.warning("Alert delivery is disabled: no notifier channel is configured.")
     else:
         logger.info("Alert delivery uses the %s channel.", channel.name)
+    next_recompute = clock()
     while not stop.is_set():
+        if clock() >= next_recompute:
+            next_recompute = clock() + recompute_interval_seconds
+            try:
+                await recompute(pool, settings)
+            except Exception as exc:
+                logger.error("Grant recompute failed: %s", type(exc).__name__)
         sent = 0
         try:
             sent = await deliver_due(

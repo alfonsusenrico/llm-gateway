@@ -27,7 +27,13 @@ LLM Gateway admin
   4  Change a request         10  Contract history
   5  Set a profile            11  Export a contract
   6  Remove a profile         12  Send a test alert
+                              13  Show grants
+                              14  Set a project weight
   0  Exit"""
+
+
+# Choices that can change a contract or status; grants are recomputed after them.
+_GRANT_INPUT_CHOICES = frozenset({"3", "4", "5", "6", "7"})
 
 
 class _Cancelled(Exception):
@@ -118,6 +124,12 @@ class Menu:
                 self._write(result)
 
     async def _dispatch(self, choice: str) -> str | None:
+        result = await self._action(choice)
+        if result is not None and choice in _GRANT_INPUT_CHOICES:
+            result = f"{result}\n{await projects.recompute_grants(self._pool, self._settings)}"
+        return result
+
+    async def _action(self, choice: str) -> str | None:
         pool, pepper = self._pool, self._settings.project_key_pepper_bytes
         match choice:
             case "1":
@@ -162,6 +174,12 @@ class Menu:
             case "12":
                 self._write("Waiting up to 30 seconds for delivery...")
                 return await notifier_test(pool, self._settings)
+            case "13":
+                return await projects.show_grants(pool, self._settings)
+            case "14":
+                project_id = await self._ask("Project ID: ")
+                weight = await self._ask_parsed("Weight [1-100]: ", _positive_int)
+                return await projects.set_weight(pool, self._settings, project_id, weight)
         return None
 
     async def _set_profile(self) -> str:

@@ -102,10 +102,11 @@ def test_import_round_trip_and_unknown_project(admin, tmp_path: Path) -> None:
     contract_file.write_text(json.dumps(ghost), encoding="utf-8")
     ghost_status, ghost_out = admin("project", "import", str(contract_file))
 
-    assert (status, out.strip()) == (
-        0,
+    assert status == 0
+    assert out.splitlines() == [
         "Imported a new version of personal_agent; keys are unchanged.",
-    )
+        "Grants unchanged.",
+    ]
     assert ghost_status == 1
     assert "Register it first" in ghost_out
 
@@ -126,3 +127,29 @@ def test_rotate_and_revoke(admin) -> None:
     assert "keep working for 30 minutes" in rotated
     assert revoke_status == 0
     assert (again_status, again.strip()) == (1, f"error: No active key {key_id}.")
+
+
+def test_register_recomputes_and_grants_show_lists_both_environments(admin) -> None:
+    _, registered = admin("project", "register", "personal_agent", "--display-name", "Agent")
+    status, shown = admin("grants", "show")
+
+    assert "Grants recomputed: 2 grants, 0 reduced." in registered
+    assert status == 0
+    assert "personal_agent/production" in shown
+    assert "personal_agent/development" in shown
+    assert "concurrency 6/8" in shown
+    assert "monthly budget 1.25/5.00 USD" in shown  # CLI defaults: 1.00 + 0.25
+
+
+def test_set_weight_validates_and_recomputes(admin) -> None:
+    admin("project", "register", "alpha", "--display-name", "Alpha")
+    admin("project", "register", "beta", "--display-name", "Beta")
+
+    status, out = admin("project", "set-weight", "alpha", "3")
+    bad_status, bad = admin("project", "set-weight", "alpha", "0")
+    ghost_status, ghost = admin("project", "set-weight", "ghost", "2")
+
+    assert status == 0
+    assert out.startswith("Weight of alpha is now 3.")
+    assert (bad_status, bad.strip()) == (1, "error: Weight must be between 1 and 100.")
+    assert (ghost_status, ghost.strip()) == (1, "error: Project ghost is not registered.")
