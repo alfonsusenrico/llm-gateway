@@ -36,8 +36,8 @@ gateway solves them once.
 | Owner notifier (Telegram) | Done |
 | Project contracts, per-environment API keys, admin CLI | Done |
 | Request-to-grant allocation | In review |
-| Model catalogue and pricing | In review |
-| Call admission, usage ledger, budget enforcement | Proposed |
+| Model catalogue and pricing | Done |
+| Call admission, usage ledger, budget enforcement | In review |
 | Direct OpenAI calls, stub provider, result replay | Proposed |
 | Python client | Proposed |
 | Streaming with function tools, hosted tools | Planned |

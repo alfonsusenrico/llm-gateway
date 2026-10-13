@@ -18,7 +18,7 @@ The owner's personal LLM gateway. Every AI project calls it instead of a provide
   - logs prompts or model output;
   - infers a model.
 
-Capabilities: database, api-consumers, llm, personal-data, background-jobs
+Capabilities: database, api-consumers, llm, personal-data, background-jobs, money
 Design surface: none
 Language: no user interface; API messages, logs, and docs are English.
 
@@ -62,6 +62,13 @@ docker compose run --rm api llm-gateway-admin grants show      # every grant and
   - `profiles.py`: contract profile checks, run on save for new or changed
     profiles only.
 - `src/llm_gateway/api/routes_catalogue.py`: `GET /v1/catalogue`.
+- `src/llm_gateway/calls/`:
+  - `admission.py`: `admit()`, one transaction under a global advisory lock,
+    with checks in a fixed order.
+  - `settlement.py`: `settle()`, `recover_abandoned()`, and the state
+    machine with audit events.
+  - `spend.py`: month-to-date spend.
+  - `budget.py`: the 50/80/100% threshold alerts.
 - `src/llm_gateway/projects/`:
   - `contract.py`: contract version 1, strict, with unknown fields rejected.
   - `keys.py`: the key format and HMAC storage.
@@ -106,6 +113,12 @@ docker compose run --rm api llm-gateway-admin grants show      # every grant and
     worker every 60 s.
   - Money is integer micro-USD internally and a decimal string at the API.
     Never use floats.
+- The ledger is the `money` capability:
+  - `calls` changes state only through `admit` and `settle`, which run
+    `check_transition` and append to `call_events` in the same
+    transaction;
+  - `call_events` is append-only, enforced by a database trigger;
+  - unknown executions and unpriced usage are charged their reservation.
 - Logs hold IDs, counts, durations, and states only. HTTP client libraries are
   capped at WARNING because they log request URLs, and some URLs carry
   credentials.

@@ -64,6 +64,10 @@ There are no network calls inside it. One global lock keeps the global cap
 exact, and at this scale a single serialization point costs about a
 millisecond per call.
 
+Before the lock, the reservation is priced. A model and tier with no price in
+effect is refused with `price_unavailable` (503, not retryable), because an
+unpriced call can never be admitted against a budget.
+
 The first failing check sets the refusal code, in this order:
 
 1. no grant: `allocation_pending` (503, retry in 5 s);
@@ -102,6 +106,11 @@ The reservation only gates admission. Settlement records the real cost.
 `settle(call_key, outcome)` sets the state, usage, `cost_micro_usd` (priced
 from the usage and the tier the provider reports), `finished_at`, and the
 failure code.
+
+The tier priced is the one the provider reports, mapped to catalogue tier
+names: OpenAI reports its standard tier as `default`. The mapping lives in
+the catalogue. An unmapped name, such as `priority`, stays unpriced, never
+free.
 
 | Outcome | State | Cost charged |
 |---|---|---|

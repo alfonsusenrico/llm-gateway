@@ -128,6 +128,18 @@ class Catalogue:
         return applicable
 
 
+# How each provider names the tiers it reports. OpenAI reports its standard tier
+# as "default"; any name not listed here is kept as is and so stays unpriced.
+_PROVIDER_TIER_NAMES: dict[str, dict[str, str]] = {
+    "openai": {"default": "standard", "auto": "standard", "flex": "flex"},
+}
+
+
+def catalogue_tier(provider: str, reported: str) -> str:
+    """The catalogue tier name for a tier as the provider reported it."""
+    return _PROVIDER_TIER_NAMES.get(provider, {}).get(reported, reported)
+
+
 def load_catalogue(models_path: Path, prices_path: Path) -> Catalogue:
     try:
         models = _ModelsFile.model_validate(json.loads(models_path.read_text(encoding="utf-8")))
