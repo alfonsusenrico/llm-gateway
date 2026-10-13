@@ -46,7 +46,7 @@ delivery with one command.
 
 ## 4. Live verification (owner-authorised)
 
-- [ ] 4.1 With the owner's notifier bot token and chat ID in `.env`, run
+- [x] 4.1 With the owner's notifier bot token and chat ID in `.env`, run
   `llm-gateway-admin notifier test` against the local stack. Record the
   result in `verification.md`.
 - [x] 4.2 Run `./scripts/check` and record the counts in `verification.md`.

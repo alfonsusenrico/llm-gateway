@@ -51,7 +51,26 @@ the `httpx2` and `httpcore2` loggers at WARNING.
   `pending` message and exited 1. The event is stored as `info` / `pending`
   with 0 attempts.
 
+## Live delivery (owner-authorised, 2026-10-13)
+
+- **Setup:** the owner's notifier bot token in `.env`. The chat ID was read
+  from the Telegram Bot API `getUpdates` inside the container, with the token
+  supplied by the compose environment and never printed. It was written into
+  `.env` as a single line.
+- **Restart:** after `docker compose up -d`, the worker logged "Alert
+  delivery uses the telegram channel."
+- **Test:** `docker compose run --rm -T api llm-gateway-admin notifier test`
+  printed `delivered` and exited 0. Both stored test events (one left
+  `pending` by the earlier no-channel run) became `delivered` after one
+  attempt each, and the owner received both messages.
+- **Token check:** grepping the API and worker logs for Telegram URLs or token
+  patterns found 0 matches.
+
+**Setup note:** `getUpdates` first returned no updates. Telegram keeps the
+last `allowed_updates` filter a bot used. Calling `getUpdates` with
+`allowed_updates=["message"]` reset it, and the waiting messages appeared.
+The README covers this.
+
 ## Not verified
 
-- **Task 4.1:** live Telegram delivery. It waits for the owner's notifier bot
-  token and chat ID. The adapter is tested only against a mocked transport.
+- Nothing outstanding for this change.
