@@ -41,7 +41,7 @@ gateway solves them once.
 | Direct OpenAI calls, stub provider, result replay | Done |
 | Python client | Done |
 | Streamed responses | Done |
-| Function tools | In review |
+| Function tools | Done |
 | Async background jobs, flex tier, dynamic allocation | Planned |
 
 OpenAI is the first provider; the adapter interface and model catalogue are
