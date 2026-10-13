@@ -16,7 +16,10 @@ from llm_gateway_client import (
     InvalidRequestError,
     RetryableError,
     TextDelta,
+    continuation_of,
+    function_output,
     json_schema,
+    tool,
 )
 from llm_gateway_client.errors import KNOWN_CODES
 from psycopg_pool import AsyncConnectionPool
@@ -176,6 +179,40 @@ async def test_dropped_stream_is_recovered_by_replay(calls: Calls) -> None:
     assert events[-1].result.replayed is True
     assert events[-1].result.output_text == "stub: one two three"
     assert [row[:2] for row in await calls.ledger()] == [("s3", "completed")]
+
+
+async def test_two_turn_tool_loop_with_the_helpers(calls: Calls) -> None:
+    client = _client(calls)
+    events_tool = tool(
+        "get_events",
+        {
+            "type": "object",
+            "properties": {"day": {"type": "string"}},
+            "required": ["day"],
+            "additionalProperties": False,
+        },
+    )
+
+    first = await client.responses.create(
+        provider_call_id="loop-1",
+        operation="demo",
+        model=STUB,
+        input="What is on today?",
+        tools=[events_tool],
+        stub={"tool_calls": [{"name": "get_events", "arguments": {"day": "today"}}]},
+    )
+    call = first.tool_calls[0]
+    second = await client.responses.create(
+        provider_call_id="loop-2",
+        operation="demo",
+        model=STUB,
+        input=[continuation_of(first), function_output(call.call_id, ["standup"])],
+        tools=[events_tool],
+    )
+
+    assert (call.name, call.arguments_json) == ("get_events", {"day": "today"})
+    assert second.output_text == 'stub: ["standup"]'
+    assert second.tool_calls == []
 
 
 @pytest.mark.parametrize(

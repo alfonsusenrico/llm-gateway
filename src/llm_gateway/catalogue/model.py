@@ -40,6 +40,7 @@ class ModelEntry(_Strict):
     temperature: TemperatureRule
     inputs: tuple[InputType, ...] = Field(min_length=1)
     service_tiers: tuple[Tier, ...] = Field(min_length=1)
+    function_tools: bool = False
     development_only: bool
 
     @model_validator(mode="after")

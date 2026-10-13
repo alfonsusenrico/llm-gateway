@@ -24,6 +24,7 @@ INVALID_REQUEST_CODES = frozenset(
         "model_not_in_catalogue",
         "invalid_model_settings",
         "input_not_supported",
+        "continuation_mismatch",
         "provider_invalid_request",
         "idempotency_conflict",
         "stub_not_allowed",

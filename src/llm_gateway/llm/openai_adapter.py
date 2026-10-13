@@ -22,12 +22,14 @@ from openai.types.responses import (
     ResponseErrorEvent,
     ResponseFailedEvent,
     ResponseIncompleteEvent,
+    ResponseOutputItemDoneEvent,
     ResponseRefusalDeltaEvent,
     ResponseTextDeltaEvent,
 )
 
 from llm_gateway.catalogue.pricing import TokenUsage
 from llm_gateway.llm.providers import (
+    FunctionCall,
     ProviderFailure,
     ProviderSuccess,
     StreamEvent,
@@ -35,7 +37,17 @@ from llm_gateway.llm.providers import (
     StreamStarted,
     StreamText,
 )
-from llm_gateway.llm.request import FilePart, ImagePart, Message, ResponseRequest, TextPart
+from llm_gateway.llm.request import (
+    Continuation,
+    FilePart,
+    FunctionCallOutput,
+    ImagePart,
+    InputItem,
+    Message,
+    NamedToolChoice,
+    ResponseRequest,
+    TextPart,
+)
 from llm_gateway.llm.resolve import ResolvedCall
 
 # Billing and spend refusals: retrying never restores access.
@@ -90,6 +102,18 @@ def _message(message: Message) -> dict[str, Any]:
     return {"role": message.role, "content": [_part(part) for part in message.content]}
 
 
+def _input_items(item: InputItem) -> list[dict[str, Any]]:
+    if isinstance(item, Message):
+        return [_message(item)]
+    if isinstance(item, FunctionCallOutput):
+        return [{"type": "function_call_output", "call_id": item.call_id, "output": item.output}]
+    if isinstance(item, Continuation):
+        # Reasoning, calls, and messages go back untouched, as the docs require
+        # for tool loops without stored state.
+        return list(item.items)
+    raise TypeError(f"unexpected input item {type(item).__name__}")
+
+
 def build_request(resolved: ResolvedCall, request: ResponseRequest) -> dict[str, Any]:
     """The Responses API body for this call; every field comes from validated input."""
     body: dict[str, Any] = {
@@ -97,7 +121,7 @@ def build_request(resolved: ResolvedCall, request: ResponseRequest) -> dict[str,
         "input": (
             request.input
             if isinstance(request.input, str)
-            else [_message(message) for message in request.input]
+            else [part for item in request.input for part in _input_items(item)]
         ),
         "store": False,
         "max_output_tokens": resolved.max_output_tokens,
@@ -109,6 +133,23 @@ def build_request(resolved: ResolvedCall, request: ResponseRequest) -> dict[str,
         body["reasoning"] = {"effort": resolved.reasoning_effort}
     if resolved.temperature is not None:
         body["temperature"] = resolved.temperature
+    if request.tools:
+        body["tools"] = [
+            {
+                "type": "function",
+                "name": tool.name,
+                "parameters": tool.parameters,
+                "strict": tool.strict,
+                **({"description": tool.description} if tool.description is not None else {}),
+            }
+            for tool in request.tools
+        ]
+    if isinstance(request.tool_choice, NamedToolChoice):
+        body["tool_choice"] = {"type": "function", "name": request.tool_choice.name}
+    elif request.tool_choice is not None:
+        body["tool_choice"] = request.tool_choice
+    if request.parallel_tool_calls is not None:
+        body["parallel_tool_calls"] = request.parallel_tool_calls
     text_format = request.text_format
     if text_format.type == "json_schema":
         body["text"] = {
@@ -200,10 +241,24 @@ def _texts(response: Any) -> tuple[str, str | None]:
     return "".join(texts), ("\n".join(refusals) if refusals else None)
 
 
+def _function_calls(items: list[dict[str, Any]]) -> tuple[FunctionCall, ...]:
+    return tuple(
+        FunctionCall(str(item["call_id"]), str(item["name"]), str(item.get("arguments", "")))
+        for item in items
+        if item.get("type") == "function_call"
+    )
+
+
 def result_from_response(
-    response: Response, request_id: str | None
+    response: Response,
+    request_id: str | None,
+    streamed_items: list[dict[str, Any]] | None = None,
 ) -> ProviderSuccess | ProviderFailure:
-    """The outcome of a finished Responses API object, streamed or not."""
+    """The outcome of a finished Responses API object, streamed or not.
+
+    A stream passes the items from `output_item.done`, whose reasoning content is
+    complete; otherwise the response's own output list is used.
+    """
     usage, reasoning = _usage(response.usage)
     if response.status == "failed":
         error = response.error
@@ -220,6 +275,11 @@ def result_from_response(
             "execution_unknown", _safe_code(response.status), None, None, request_id
         )
     output_text, refusal = _texts(response)
+    items = (
+        streamed_items
+        if streamed_items
+        else [item.to_dict(mode="json") for item in response.output or []]
+    )
     details = response.incomplete_details
     return ProviderSuccess(
         status=response.status,
@@ -231,6 +291,8 @@ def result_from_response(
         service_tier=response.service_tier,
         provider_response_id=response.id,
         provider_request_id=request_id,
+        function_calls=_function_calls(items),
+        output_items=tuple(items),
     )
 
 
@@ -295,11 +357,17 @@ class OpenAIAdapter:
             return
         request_id = stream.response.headers.get("x-request-id")
         accepted = False
+        done_items: dict[int, dict[str, Any]] = {}
         try:
             async for event in stream:
                 if isinstance(event, ResponseCreatedEvent):
                     accepted = True
                     yield StreamStarted(request_id)
+                elif isinstance(event, ResponseOutputItemDoneEvent):
+                    item = event.item.to_dict(mode="json")
+                    done_items[event.output_index] = item
+                    for call in _function_calls([item]):
+                        yield call
                 elif isinstance(event, ResponseTextDeltaEvent):
                     yield StreamText(event.delta)
                 elif isinstance(event, ResponseRefusalDeltaEvent):
@@ -307,7 +375,8 @@ class OpenAIAdapter:
                 elif isinstance(
                     event, ResponseCompletedEvent | ResponseIncompleteEvent | ResponseFailedEvent
                 ):
-                    yield result_from_response(event.response, request_id)
+                    items = [done_items[index] for index in sorted(done_items)]
+                    yield result_from_response(event.response, request_id, items)
                     return
                 elif isinstance(event, ResponseErrorEvent):
                     yield classify_stream_error(event.code, accepted=accepted)

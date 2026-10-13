@@ -1,6 +1,6 @@
 """Typed Python client for LLM Gateway."""
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 from llm_gateway_client.client import GatewayClient, RetryPolicy, SyncGatewayClient
 from llm_gateway_client.errors import (
@@ -22,12 +22,16 @@ from llm_gateway_client.models import (
     Started,
     StreamEvent,
     TextDelta,
+    ToolCall,
     Usage,
+    continuation_of,
+    function_output,
     image,
     json_schema,
     message,
     pdf,
     text,
+    tool,
 )
 
 __all__ = [
@@ -50,10 +54,14 @@ __all__ = [
     "StreamEvent",
     "SyncGatewayClient",
     "TextDelta",
+    "ToolCall",
     "Usage",
+    "continuation_of",
+    "function_output",
     "image",
     "json_schema",
     "message",
     "pdf",
     "text",
+    "tool",
 ]

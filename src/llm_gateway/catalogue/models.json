@@ -10,6 +10,7 @@
       "temperature": "only_with_effort_none",
       "inputs": ["text", "image", "file"],
       "service_tiers": ["standard", "flex"],
+      "function_tools": true,
       "development_only": false
     },
     {
@@ -22,6 +23,7 @@
       "temperature": "always",
       "inputs": ["text", "image", "file"],
       "service_tiers": ["standard"],
+      "function_tools": true,
       "development_only": true
     }
   ]

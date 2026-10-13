@@ -86,6 +86,63 @@ resubmits the same call ID and finishes with the replayed `Completed`. Deltas
 from the lost connection may be partial, so always use `Completed.result` as
 the final text.
 
+### Tool loop
+
+Your project runs its own tools and loop; the client only builds the turns.
+
+```python
+from llm_gateway_client import continuation_of, function_output, tool
+
+events_tool = tool(
+    "get_events",
+    {
+        "type": "object",
+        "properties": {"day": {"type": "string"}},
+        "required": ["day"],
+        "additionalProperties": False,
+    },
+    description="Calendar events for one day.",
+)
+history = [message("user", "What is on today?")]
+result = await gateway.responses.create(
+    provider_call_id=f"{turn_id}-0",
+    operation="assistant",
+    profile="chat",
+    input=history,
+    tools=[events_tool],
+)
+chain = []  # every step since the user's message, in order
+step = 0
+while result.tool_calls and step < 8:
+    chain.append(continuation_of(result))
+    chain += [
+        function_output(call.call_id, run_tool(call.name, call.arguments_json))
+        for call in result.tool_calls
+    ]
+    step += 1
+    result = await gateway.responses.create(
+        provider_call_id=f"{turn_id}-{step}",
+        operation="assistant",
+        profile="chat",
+        input=[*history, *chain],
+        tools=[events_tool],
+    )
+print(result.output_text)
+```
+
+- `continuation_of(result)` carries the model's reasoning and calls into the
+  next call unchanged; never edit it. The chain keeps every step's
+  continuation and outputs, in order, after the history: the provider stores
+  nothing between calls.
+- `call.arguments_json` is `None` when the model sent invalid JSON; then
+  `call.arguments_error` says why. Answer with an error output so the model
+  can retry.
+- A final answer has no continuation. Store its text in your own history and
+  start a new chain at the next user message.
+- Bound the loop, as the 8-step limit above does, so a confused model cannot
+  run up cost.
+- Streams yield a `ToolCall` event as each call's arguments complete.
+
 `SyncGatewayClient` offers the same interface without `async`, except
 streaming.
 

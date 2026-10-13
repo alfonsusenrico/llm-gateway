@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from typing import Literal, Protocol
+from typing import Any, Literal, Protocol
 
 from llm_gateway.calls.records import CallState
 from llm_gateway.catalogue.pricing import TokenUsage
@@ -25,6 +25,15 @@ _DEFAULT_RETRY_SECONDS = 5
 
 
 @dataclass(frozen=True, slots=True)
+class FunctionCall:
+    """A function the model asked the project to run; arguments are raw JSON text."""
+
+    call_id: str
+    name: str
+    arguments: str
+
+
+@dataclass(frozen=True, slots=True)
 class ProviderSuccess:
     status: Literal["completed", "incomplete"]
     output_text: str
@@ -35,6 +44,9 @@ class ProviderSuccess:
     service_tier: str | None
     provider_response_id: str | None
     provider_request_id: str | None
+    function_calls: tuple[FunctionCall, ...] = ()
+    # The provider's full output list, kept intact for the next turn of a tool loop.
+    output_items: tuple[dict[str, Any], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,7 +76,9 @@ class StreamRefusal:
     delta: str
 
 
-StreamEvent = StreamStarted | StreamText | StreamRefusal | ProviderSuccess | ProviderFailure
+StreamEvent = (
+    StreamStarted | StreamText | StreamRefusal | FunctionCall | ProviderSuccess | ProviderFailure
+)
 
 
 class ProviderAdapter(Protocol):
