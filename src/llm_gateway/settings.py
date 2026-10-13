@@ -40,6 +40,9 @@ class Settings(BaseSettings):
     # tunnel); otherwise the TCP peer address identifies the client.
     trusted_client_ip_header: str | None = Field(default=None, pattern=r"^[A-Za-z0-9-]{1,64}$")
 
+    # A provider call's deadline; an admitted call's lease adds a minute to it.
+    llm_call_timeout_seconds: int = Field(default=180, ge=10, le=900)
+
     # Shared capacity that grants divide, and the guaranteed minimum per grant.
     allocation_capacity_requests_per_minute: int = Field(default=120, ge=1, le=100_000)
     allocation_capacity_concurrency: int = Field(default=8, ge=1, le=1_000)

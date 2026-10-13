@@ -1,4 +1,4 @@
-"""Background worker process: delivers owner alerts and keeps grants current."""
+"""Background worker: alert delivery, grant recompute, abandoned calls, budget alerts."""
 
 from __future__ import annotations
 
@@ -14,6 +14,8 @@ import httpx2
 from psycopg_pool import AsyncConnectionPool
 
 from llm_gateway.allocation.store import recompute
+from llm_gateway.calls.budget import check_budget_thresholds
+from llm_gateway.calls.settlement import recover_abandoned
 from llm_gateway.db.pool import create_pool
 from llm_gateway.logging_setup import configure_logging
 from llm_gateway.notifier.channels import Channel, TelegramChannel
@@ -23,6 +25,8 @@ from llm_gateway.settings import Settings, SettingsError, load_settings
 POLL_INTERVAL_SECONDS = 2.0
 # Picks up capacity settings changed by a restart; edits recompute immediately anyway.
 RECOMPUTE_INTERVAL_SECONDS = 60.0
+# Abandoned-call recovery and the budget threshold pass.
+LEDGER_INTERVAL_SECONDS = 15.0
 logger = logging.getLogger(__name__)
 
 
@@ -44,6 +48,7 @@ async def run_worker(
     *,
     poll_interval_seconds: float = POLL_INTERVAL_SECONDS,
     recompute_interval_seconds: float = RECOMPUTE_INTERVAL_SECONDS,
+    ledger_interval_seconds: float = LEDGER_INTERVAL_SECONDS,
     clock: Callable[[], float] = time.monotonic,
 ) -> None:
     """Run until `stop` is set; the batch in progress always finishes first."""
@@ -51,8 +56,15 @@ async def run_worker(
         logger.warning("Alert delivery is disabled: no notifier channel is configured.")
     else:
         logger.info("Alert delivery uses the %s channel.", channel.name)
-    next_recompute = clock()
+    next_recompute = next_ledger_pass = clock()
     while not stop.is_set():
+        if clock() >= next_ledger_pass:
+            next_ledger_pass = clock() + ledger_interval_seconds
+            try:
+                await recover_abandoned(pool)
+                await check_budget_thresholds(pool, settings)
+            except Exception as exc:
+                logger.error("Ledger pass failed: %s", type(exc).__name__)
         if clock() >= next_recompute:
             next_recompute = clock() + recompute_interval_seconds
             try:

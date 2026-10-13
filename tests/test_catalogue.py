@@ -182,3 +182,12 @@ def test_stub_is_free() -> None:
 )
 def test_profile_checks(profile: ModelProfile, expected: list[str]) -> None:
     assert profile_errors("chat", profile, get_catalogue()) == expected
+
+
+def test_provider_tier_names_map_to_catalogue_tiers() -> None:
+    from llm_gateway.catalogue.model import catalogue_tier
+
+    assert catalogue_tier("openai", "default") == "standard"
+    assert catalogue_tier("openai", "flex") == "flex"
+    assert catalogue_tier("openai", "priority") == "priority"  # unpriced, never free
+    assert catalogue_tier("stub", "standard") == "standard"
