@@ -54,8 +54,9 @@ The project should never handle OpenAI's formats to do that.
 ## Non-goals
 
 - Gateway-executed tools. The project runs its own tools and its own loop.
-- Provider hosted tools such as OpenAI web search (`add-web-search-service`
-  covers search as a gateway service).
+- Provider hosted tools such as OpenAI web search. Search is a project
+  feature: a project that needs it calls its own search provider as one of
+  its function tools.
 - Custom (free-form) tools, MCP tools, tool search, and namespaces.
 
 ## Capabilities
