@@ -95,6 +95,13 @@ docker compose run --rm api llm-gateway-admin grants show      # every grant and
   - `pool.py`: the async pool.
   - `migrate.py`: the checksummed, forward-only runner.
   - `migrations/NNNN_name.sql`: hand-written migrations.
+- `clients/python/`: the `llm-gateway-client` uv workspace package.
+  - `errors.py` maps every problem code; an unknown code fails closed.
+  - `client.py` holds the retry rules and the grant-sized limiter, async and
+    sync.
+  - Unit tests live in `clients/python/tests`. Contract tests against the
+    real app are in `tests/test_client_contract.py`, including a guard that
+    every gateway problem code is mapped.
 - `tests/`: tests marked `db` need `TEST_DATABASE_URL`; `REQUIRE_DB=1` makes a
   missing database fail.
 - The phased plan is local-only in `research/notes/`; this repository is
@@ -119,6 +126,10 @@ docker compose run --rm api llm-gateway-admin grants show      # every grant and
   - provider messages are never logged or returned, only status and code.
 - Every OpenAI request sends `store: false`. Never enable provider-side
   storage or conversation state.
+- A new problem code needs a mapping in
+  `clients/python/src/llm_gateway_client/errors.py`. The contract guard test
+  fails until it has one. Client and gateway are released together under
+  one tag.
 - Raw project keys are printed once, at issue, and never stored or logged.
   `PROJECT_KEY_PEPPER` must never change; changing it invalidates every key.
 - Every limit and budget is a backend grant. A project's contract holds only

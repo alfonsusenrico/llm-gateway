@@ -30,10 +30,17 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
+    "llm-gateway-client",
     "pyright[nodejs]>=1.1.414",
     "pytest>=9.1.1",
     "ruff>=0.17.0",
 ]
+
+[tool.uv.workspace]
+members = ["clients/python"]
+
+[tool.uv.sources]
+llm-gateway-client = { workspace = true }
 
 [tool.ruff]
 line-length = 100
@@ -47,15 +54,16 @@ ignore = ["E501"]
 # Tests use assert, fixture credentials for disposable services, and seeded
 # pseudo-random inputs for reproducible property tests.
 "tests/**/*.py" = ["S101", "S105", "S106", "S311"]
+"clients/python/tests/**/*.py" = ["S101", "S105", "S106", "S311"]
 
 [tool.pyright]
 typeCheckingMode = "standard"
 venvPath = "."
 venv = ".venv"
-include = ["src", "tests"]
+include = ["src", "tests", "clients/python/src", "clients/python/tests"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "clients/python/tests"]
 addopts = ["--strict-markers", "--strict-config", "-ra"]
 xfail_strict = true
 markers = [
