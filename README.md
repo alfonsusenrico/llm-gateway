@@ -33,7 +33,7 @@ gateway solves them once.
 | Area | Status |
 |---|---|
 | Foundation: settings, RFC 9457 errors, health, migrations | Done |
-| Owner notifier (Telegram) | Proposed |
+| Owner notifier (Telegram) | In review |
 | Project contracts, per-environment API keys, admin CLI | Proposed |
 | Request-to-grant allocation | Proposed |
 | Direct calls, model profiles, usage ledger, budget enforcement, Python client | Planned |
@@ -70,6 +70,31 @@ Python 3.13 (uv can install it).
    ```bash
    curl -fsS http://127.0.0.1:8360/health/ready
    ```
+
+### Owner alerts (optional)
+
+The worker sends owner alerts to Telegram.
+
+1. Create a dedicated bot with [@BotFather](https://t.me/BotFather) and send
+   it a message.
+2. Read your chat ID from
+   `https://api.telegram.org/bot<token>/getUpdates`.
+3. Set both values in `.env`:
+
+   ```bash
+   NOTIFIER_TELEGRAM_BOT_TOKEN=<token>
+   NOTIFIER_TELEGRAM_CHAT_ID=<chat id>
+   ```
+
+4. Restart and send a test alert:
+
+   ```bash
+   docker compose up -d
+   docker compose run --rm api llm-gateway-admin notifier test
+   ```
+
+Without these values, alerts stay pending and expire after 24 hours; the
+gateway keeps working.
 
 Stop the stack with `docker compose down`. Leave out `-v` to keep the local
 database.

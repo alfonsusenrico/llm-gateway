@@ -20,6 +20,20 @@ def test_packaged_migrations_are_valid() -> None:
     discover(MIGRATIONS_DIR)
 
 
+@pytest.mark.db
+def test_packaged_migrations_apply_to_empty_database_and_reapply_is_a_no_op(
+    test_database_url: str, isolated_schema: str
+) -> None:
+    migrations = discover(MIGRATIONS_DIR)
+
+    with _connect(test_database_url, isolated_schema) as connection:
+        first = apply_migrations(connection, migrations)
+        second = apply_migrations(connection, migrations)
+
+    assert first == [migration.version for migration in migrations]
+    assert second == []
+
+
 def test_invalid_file_name_is_rejected(tmp_path: Path) -> None:
     _write(tmp_path, "1_Create Things.sql", "SELECT 1;")
 

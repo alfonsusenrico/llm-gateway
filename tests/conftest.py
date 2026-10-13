@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import os
 import uuid
-from collections.abc import Iterator
+from collections.abc import AsyncIterator, Iterator
 
 import psycopg
 import pytest
 from psycopg import sql
+from psycopg_pool import AsyncConnectionPool
 
+from llm_gateway.db.migrate import MIGRATIONS_DIR, apply_migrations, discover
 from llm_gateway.settings import Settings
 
 # Nothing listens on port 1, so a connection fails immediately.
@@ -51,3 +53,33 @@ def isolated_schema(test_database_url: str) -> Iterator[str]:
     finally:
         with psycopg.connect(test_database_url, autocommit=True) as connection:
             connection.execute(sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema)))
+
+
+@pytest.fixture
+def anyio_backend() -> str:
+    return "asyncio"
+
+
+def schema_options(schema: str) -> str:
+    return f"-c search_path={schema}"
+
+
+@pytest.fixture
+async def migrated_pool(
+    test_database_url: str, isolated_schema: str
+) -> AsyncIterator[AsyncConnectionPool]:
+    """A pool on an empty schema with every packaged migration applied."""
+    with psycopg.connect(test_database_url, options=schema_options(isolated_schema)) as connection:
+        apply_migrations(connection, discover(MIGRATIONS_DIR))
+    pool: AsyncConnectionPool = AsyncConnectionPool(
+        test_database_url,
+        kwargs={"options": schema_options(isolated_schema)},
+        min_size=1,
+        max_size=12,
+        open=False,
+    )
+    await pool.open(wait=True, timeout=10)
+    try:
+        yield pool
+    finally:
+        await pool.close()
