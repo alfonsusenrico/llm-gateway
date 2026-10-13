@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
@@ -11,6 +12,8 @@ from psycopg import AsyncConnection
 from psycopg.types.json import Jsonb
 from psycopg_pool import AsyncConnectionPool
 
+from llm_gateway.catalogue.model import get_catalogue
+from llm_gateway.catalogue.profiles import profile_errors
 from llm_gateway.projects.contract import (
     ENVIRONMENTS,
     ContractError,
@@ -59,6 +62,7 @@ async def register_project(
     pool: AsyncConnectionPool, contract: ContractV1, *, actor: str, pepper: bytes
 ) -> list[IssuedKey]:
     """Store version 1 and issue one key per environment; return the keys to show once."""
+    _check_changed_profiles({}, contract)
     keys = [issue_key(environment, pepper) for environment in ENVIRONMENTS]
     async with pool.connection() as connection, connection.transaction():
         cursor = await connection.execute(
@@ -96,9 +100,10 @@ async def update_contract(
             raise ProjectNotFoundError(f"Project {project_id} is not registered.")
         version = int(row[0])
         current = await _contract_json(connection, project_id, version)
-        updated = parse_contract(change(current))
+        updated = parse_contract(change(copy.deepcopy(current)))
         if updated.project_id != project_id:
             raise ContractError("project_id: cannot be changed")
+        _check_changed_profiles(_previous_profiles(current), updated)
         await _insert_version(connection, updated, version + 1, actor, note)
         await connection.execute(
             "UPDATE projects SET current_version = %s, updated_at = now() WHERE project_id = %s",
@@ -212,6 +217,31 @@ async def revoke_key(pool: AsyncConnectionPool, key_id: str) -> None:
         )
         if cursor.rowcount == 0:
             raise RegistryError(f"No active key {key_id}.")
+
+
+def _previous_profiles(current: dict[str, Any]) -> dict[str, Any]:
+    """The stored version's profiles; none when it is invalid, so all are checked."""
+    try:
+        return dict(parse_contract(current).profiles)
+    except ContractError:
+        return {}
+
+
+def _check_changed_profiles(before: dict[str, Any], after: ContractV1) -> None:
+    """Check new or changed profiles against the catalogue.
+
+    Unchanged profiles are not rechecked, so a later catalogue change never
+    blocks unrelated edits such as disabling a project.
+    """
+    catalogue = get_catalogue()
+    errors = [
+        error
+        for name, profile in after.profiles.items()
+        if before.get(name) != profile
+        for error in profile_errors(name, profile, catalogue)
+    ]
+    if errors:
+        raise ContractError("; ".join(errors))
 
 
 async def _contract_json(

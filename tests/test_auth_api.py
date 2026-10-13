@@ -244,3 +244,23 @@ def test_failure_throttle_window_and_crossing() -> None:
     assert blocked_now is True
     assert throttle.blocked("a") is False
     assert throttle.blocked("b") is False
+
+
+async def test_catalogue_hides_development_models_from_production_keys(gateway: Gateway) -> None:
+    keys = await gateway.register()
+
+    production = await gateway.client.get(
+        "/v1/catalogue", headers={"Authorization": f"Bearer {keys['production'].raw}"}
+    )
+    development = await gateway.client.get(
+        "/v1/catalogue", headers={"Authorization": f"Bearer {keys['development'].raw}"}
+    )
+
+    assert [m["model"] for m in production.json()["models"]] == ["gpt-6-luna"]
+    assert [m["model"] for m in development.json()["models"]] == ["gpt-6-luna", "stub-echo"]
+    luna = production.json()["models"][0]
+    assert luna["prices"]["standard"]["input"] == "0.10"
+    assert luna["prices"]["flex"]["output"] == "0.25"
+    stub = development.json()["models"][1]
+    assert stub["prices"]["standard"]["output"] == "0"
+    assert production.headers["Cache-Control"] == "private, max-age=300"

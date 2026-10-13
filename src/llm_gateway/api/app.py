@@ -18,7 +18,9 @@ from llm_gateway.api.problems import (
 )
 from llm_gateway.api.routes_allocation import GrantDirectory
 from llm_gateway.api.routes_allocation import router as allocation_router
+from llm_gateway.api.routes_catalogue import router as catalogue_router
 from llm_gateway.api.routes_projects import router as projects_router
+from llm_gateway.catalogue.model import get_catalogue
 from llm_gateway.db.pool import create_pool, database_ready
 from llm_gateway.logging_setup import configure_logging, request_id_var
 from llm_gateway.notifier.events import wait_for_background_alerts
@@ -34,6 +36,7 @@ _READINESS_RETRY_AFTER_SECONDS = 5
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or load_settings()
     configure_logging(settings)
+    get_catalogue()  # An invalid catalogue or price file stops start-up here.
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -60,6 +63,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     install_problem_handlers(app)
     app.include_router(projects_router)
     app.include_router(allocation_router)
+    app.include_router(catalogue_router)
 
     @app.middleware("http")
     async def assign_request_id(

@@ -164,3 +164,33 @@ async def test_rotation_of_an_unknown_project_is_refused(
         await service.rotate_key(
             migrated_pool, "ghost_project", "production", grace_minutes=0, pepper=PEPPER
         )
+
+
+async def test_a_model_removed_from_the_catalogue_never_blocks_other_edits(
+    migrated_pool: AsyncConnectionPool,
+) -> None:
+    await _register(migrated_pool)
+    async with migrated_pool.connection() as connection:
+        # The stored profile names a model the catalogue no longer offers.
+        await connection.execute(
+            "UPDATE contract_versions SET contract = jsonb_set(contract, "
+            "'{profiles,chat,model}', '\"retired-model\"') WHERE project_id = 'personal_agent'"
+        )
+
+    def disable(contract: dict[str, Any]) -> dict[str, Any]:
+        contract["status"] = "disabled"
+        return contract
+
+    updated = await service.update_contract(
+        migrated_pool, "personal_agent", disable, actor="t", note="disable"
+    )
+    assert updated.status == "disabled"
+
+    def touch_chat(contract: dict[str, Any]) -> dict[str, Any]:
+        contract["profiles"]["chat"]["max_output_tokens"] = 900
+        return contract
+
+    with pytest.raises(ContractError, match="retired-model is not in the catalogue"):
+        await service.update_contract(
+            migrated_pool, "personal_agent", touch_chat, actor="t", note="touch"
+        )
