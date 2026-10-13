@@ -4,6 +4,7 @@ gateways stay compatible; requests are validated by the gateway itself."""
 from __future__ import annotations
 
 import base64
+import json
 from pathlib import Path
 from typing import Any, Literal
 
@@ -22,6 +23,16 @@ class Usage(_Lenient):
     reasoning_tokens: int | None = None
 
 
+class ToolCall(_Lenient):
+    """A function the model wants the project to run. Also a stream event."""
+
+    call_id: str
+    name: str
+    arguments: str
+    arguments_json: dict[str, Any] | None = None
+    arguments_error: str | None = None
+
+
 class CallResult(_Lenient):
     provider_call_id: str
     status: Literal["completed", "incomplete"]
@@ -33,6 +44,9 @@ class CallResult(_Lenient):
     refusal: str | None = None
     incomplete_reason: str | None = None
     structured_output_error: str | None = None
+    tool_calls: list[ToolCall] = []
+    # Opaque: send it back unchanged with `continuation_of(result)`.
+    continuation: dict[str, Any] | None = None
     usage: Usage
     cost_usd: str | None = None
     provider_response_id: str | None = None
@@ -71,6 +85,7 @@ class CatalogueModel(_Lenient):
     temperature: str
     inputs: list[str]
     service_tiers: list[str]
+    function_tools: bool = False
     prices: dict[str, dict[str, Any]]
 
 
@@ -123,6 +138,39 @@ def message(
     return {"role": role, "content": content}
 
 
+def tool(
+    name: str,
+    parameters: dict[str, Any],
+    *,
+    description: str | None = None,
+    strict: bool = True,
+) -> dict[str, Any]:
+    """A function tool. Strict schemas need `additionalProperties: false` and every
+    property listed in `required`."""
+    definition: dict[str, Any] = {
+        "type": "function",
+        "name": name,
+        "parameters": parameters,
+        "strict": strict,
+    }
+    if description is not None:
+        definition["description"] = description
+    return definition
+
+
+def function_output(call_id: str, output: str | dict[str, Any] | list[Any]) -> dict[str, Any]:
+    """The result of one tool call; anything but a string is sent as JSON text."""
+    text_output = output if isinstance(output, str) else json.dumps(output)
+    return {"type": "function_call_output", "call_id": call_id, "output": text_output}
+
+
+def continuation_of(result: CallResult) -> dict[str, Any]:
+    """The input item that carries a tool-calling turn into the next call."""
+    if result.continuation is None:
+        raise ValueError("this result has no continuation; it called no tools")
+    return {"type": "continuation", **result.continuation}
+
+
 def json_schema(name: str, schema: dict[str, Any]) -> dict[str, Any]:
     """A strict JSON schema output format; the parsed answer arrives in `output_json`."""
     return {"type": "json_schema", "name": name, "schema": schema, "strict": True}
@@ -150,4 +198,4 @@ class Completed(_Lenient):
     result: CallResult
 
 
-StreamEvent = Started | TextDelta | RefusalDelta | Completed
+StreamEvent = Started | TextDelta | RefusalDelta | ToolCall | Completed

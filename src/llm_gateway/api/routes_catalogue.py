@@ -37,6 +37,7 @@ class ModelOut(BaseModel):
     temperature: str
     inputs: list[str]
     service_tiers: list[str]
+    function_tools: bool
     prices: dict[str, PriceOut]
 
 
@@ -82,6 +83,7 @@ async def catalogue(
                 temperature=entry.temperature,
                 inputs=list(entry.inputs),
                 service_tiers=list(entry.service_tiers),
+                function_tools=entry.function_tools,
                 prices=prices,
             )
         )

@@ -18,6 +18,7 @@ from typing import Any
 from llm_gateway.calls.records import Allowance, CallRecord
 from llm_gateway.llm.errors import CallRejectedError
 from llm_gateway.llm.providers import (
+    FunctionCall,
     ProviderFailure,
     ProviderSuccess,
     StreamRefusal,
@@ -32,6 +33,7 @@ from llm_gateway.llm.service import (
     keep_running,
     prepare_call,
     replay_body,
+    tool_call_body,
 )
 from llm_gateway.projects.contract import ContractV1
 
@@ -109,6 +111,8 @@ async def _produce(
                 await channel.put(("text.delta", {"delta": event.delta}))
             elif isinstance(event, StreamRefusal):
                 await channel.put(("refusal.delta", {"delta": event.delta}))
+            elif isinstance(event, FunctionCall):
+                await channel.put(("tool_call", tool_call_body(event)))
             else:
                 result = event
                 break

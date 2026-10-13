@@ -25,6 +25,7 @@ from llm_gateway_client.models import (
     Started,
     StreamEvent,
     TextDelta,
+    ToolCall,
 )
 
 _TRANSPORT_RETRY_SECONDS = 1.0
@@ -163,6 +164,9 @@ class _Responses:
         reasoning_effort: str | None = None,
         temperature: float | None = None,
         prompt_cache_key: str | None = None,
+        tools: list[dict[str, Any]] | None = None,
+        tool_choice: str | dict[str, str] | None = None,
+        parallel_tool_calls: bool | None = None,
         stub: dict[str, Any] | None = None,
     ) -> CallResult:
         body = _call_body(
@@ -178,6 +182,9 @@ class _Responses:
                 "reasoning_effort": reasoning_effort,
                 "temperature": temperature,
                 "prompt_cache_key": prompt_cache_key,
+                "tools": tools,
+                "tool_choice": tool_choice,
+                "parallel_tool_calls": parallel_tool_calls,
                 "stub": stub,
             },
         )
@@ -275,6 +282,8 @@ class GatewayClient:
                                 yield TextDelta.model_validate(data)
                             elif name == "refusal.delta":
                                 yield RefusalDelta.model_validate(data)
+                            elif name == "tool_call":
+                                yield ToolCall.model_validate(data)
                             elif name == "response.completed":
                                 yield Completed(result=CallResult.model_validate(data))
                                 return

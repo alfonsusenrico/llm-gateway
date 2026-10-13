@@ -69,9 +69,12 @@ docker compose run --rm api llm-gateway-admin grants show      # every grant and
     profiles only.
 - `src/llm_gateway/api/routes_catalogue.py`: `GET /v1/catalogue`.
 - `src/llm_gateway/llm/`:
-  - `request.py`: the strict `POST /v1/responses` body.
+  - `request.py`: the strict `POST /v1/responses` body, including function
+    tools and the `continuation` and `function_call_output` input items.
   - `resolve.py`: profile, catalogue, settings, and input checks.
   - `openai_adapter.py`: `store=false`, no SDK retries, `X-Client-Request-Id`.
+    Continuation items go back to OpenAI untouched; streamed items come from
+    `output_item.done`, whose reasoning content is complete.
   - `stub_adapter.py`: scripted answers and failures for development keys.
   - `providers.py`: the failure categories and `failure_policy`.
   - `results.py`: Fernet-encrypted replay storage.

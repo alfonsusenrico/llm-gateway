@@ -86,6 +86,20 @@ def resolve(
             "input_not_supported",
             detail=f"{entry.provider}/{entry.model} does not accept {', '.join(unsupported)}.",
         )
+    if request.tools and not entry.function_tools:
+        raise CallRejectedError(
+            "input_not_supported",
+            detail=f"{entry.provider}/{entry.model} does not accept function tools.",
+        )
+    for continuation in request.continuations():
+        if (continuation.provider, continuation.model) != entry.key:
+            raise CallRejectedError(
+                "continuation_mismatch",
+                detail=(
+                    f"The continuation is from {continuation.provider}/{continuation.model}, "
+                    f"not {entry.provider}/{entry.model}."
+                ),
+            )
     return ResolvedCall(
         entry=entry,
         reasoning_effort=effort,

@@ -17,6 +17,7 @@ from llm_gateway.calls.settlement import Outcome, settle
 from llm_gateway.catalogue.model import Catalogue
 from llm_gateway.llm.errors import PROBLEM_STATUS, CallRejectedError
 from llm_gateway.llm.providers import (
+    FunctionCall,
     ProviderAdapter,
     ProviderFailure,
     ProviderSuccess,
@@ -250,6 +251,35 @@ def _structured_output(request: ResponseRequest, result: ProviderSuccess) -> tup
     return parsed, None
 
 
+def tool_call_body(call: FunctionCall) -> dict[str, Any]:
+    """A tool call as projects see it, with the arguments parsed when they are valid."""
+    try:
+        parsed = json.loads(call.arguments)
+    except ValueError:
+        parsed, error = None, "invalid_json"
+    else:
+        error = None if isinstance(parsed, dict) else "not_json_object"
+        parsed = parsed if isinstance(parsed, dict) else None
+    return {
+        "call_id": call.call_id,
+        "name": call.name,
+        "arguments": call.arguments,
+        "arguments_json": parsed,
+        "arguments_error": error,
+    }
+
+
+def _continuation(resolved: ResolvedCall, result: ProviderSuccess) -> dict[str, Any] | None:
+    # Only a turn that asks for tools needs its items back; a final answer starts over.
+    if not result.function_calls:
+        return None
+    return {
+        "provider": resolved.provider,
+        "model": resolved.model,
+        "items": list(result.output_items),
+    }
+
+
 def _body(
     request: ResponseRequest, resolved: ResolvedCall, result: ProviderSuccess
 ) -> dict[str, Any]:
@@ -266,6 +296,8 @@ def _body(
         "refusal": result.refusal,
         "incomplete_reason": result.incomplete_reason,
         "structured_output_error": structured_error,
+        "tool_calls": [tool_call_body(call) for call in result.function_calls],
+        "continuation": _continuation(resolved, result),
         "usage": {
             "input_tokens": usage.input_tokens,
             "cached_input_tokens": usage.cached_input_tokens,

@@ -41,7 +41,7 @@ gateway solves them once.
 | Direct OpenAI calls, stub provider, result replay | Done |
 | Python client | Done |
 | Streamed responses | Done |
-| Function tools | Planned |
+| Function tools | In review |
 | Async background jobs, flex tier, dynamic allocation | Planned |
 
 OpenAI is the first provider; the adapter interface and model catalogue are
@@ -172,6 +172,8 @@ curl -s http://127.0.0.1:8360/v1/responses \
     again. Use a new ID to try once more.
 - **Streaming:** `"stream": true` answers with server-sent events (see
   below).
+- **Function tools:** the model can ask the project to run its functions
+  (see below).
 - **Stub scenarios:** the stub accepts
   `"stub": {"reply": ..., "scenario": "overloaded"}` to simulate each
   failure type, so a project can test its error handling for free.
@@ -199,6 +201,59 @@ curl -sN http://127.0.0.1:8360/v1/responses \
 - **Replays:** resubmitting a finished call ID with `"stream": true` answers
   with one event: `response.completed` (`replayed: true`) or `error` with the
   recorded code.
+
+### Function tools
+
+The model can ask the project to run its own functions. The project runs them
+and its own loop; the gateway only carries the turns. On the stub, the free
+`stub.tool_calls` script makes the model ask for a call:
+
+```bash
+TOOLS='[{"type": "function", "name": "get_events",
+  "parameters": {"type": "object", "properties": {"day": {"type": "string"}},
+                 "required": ["day"], "additionalProperties": false}}]'
+FIRST=$(curl -s http://127.0.0.1:8360/v1/responses \
+  -H "Authorization: Bearer $DEV_KEY" -H "Content-Type: application/json" \
+  -d "{\"provider_call_id\": \"tools-1\", \"operation\": \"demo\",
+       \"model\": {\"provider\": \"stub\", \"model\": \"stub-echo\"},
+       \"input\": \"What is on today?\", \"tools\": $TOOLS,
+       \"stub\": {\"tool_calls\": [{\"name\": \"get_events\", \"arguments\": {\"day\": \"today\"}}]}}")
+echo "$FIRST" | jq '.tool_calls'
+
+jq -n --argjson first "$FIRST" --argjson tools "$TOOLS" '{
+  provider_call_id: "tools-2", operation: "demo",
+  model: {provider: "stub", model: "stub-echo"}, tools: $tools,
+  input: [
+    ({type: "continuation"} + $first.continuation),
+    {type: "function_call_output", call_id: $first.tool_calls[0].call_id,
+     output: "[\"standup at 9\"]"}
+  ]}' |
+curl -s http://127.0.0.1:8360/v1/responses \
+  -H "Authorization: Bearer $DEV_KEY" -H "Content-Type: application/json" -d @- |
+jq '.output_text'
+```
+
+- **Tools:** up to 32 functions, each with a name, an optional description,
+  and a JSON Schema for its parameters. Strict mode is on by default, so
+  schemas need `additionalProperties: false` and every property in
+  `required`. `tool_choice` (`auto`, `none`, `required`, or one named
+  function) and `parallel_tool_calls` are optional.
+- **Tool calls:** each one has `call_id`, `name`, the raw `arguments` text,
+  and `arguments_json`. If the model sent invalid JSON, `arguments_json` is
+  null and `arguments_error` says why; the call itself still completed.
+- **Continuation:** a turn with tool calls also returns `continuation`. Send
+  it back unchanged as one input item, followed by one
+  `function_call_output` per call. It carries the model's earlier reasoning
+  and calls, because the provider stores nothing between turns. In a loop of
+  several steps, keep every step's continuation and outputs, in order. A
+  continuation only fits the model that produced it
+  (`continuation_mismatch` otherwise).
+- **One chain per user message:** a final answer has no continuation. For the
+  next user message, the project sends its own history as messages and starts
+  a new chain, so continuations never grow without bound.
+- **Streams** emit a `tool_call` event when each call's arguments are
+  complete. `response.completed` holds the same `tool_calls` and
+  `continuation` as a direct call.
 
 Projects send their key as `Authorization: Bearer <key>`.
 `GET /v1/projects/self` confirms which project and environment a key belongs
