@@ -126,3 +126,28 @@ def message(
 def json_schema(name: str, schema: dict[str, Any]) -> dict[str, Any]:
     """A strict JSON schema output format; the parsed answer arrives in `output_json`."""
     return {"type": "json_schema", "name": name, "schema": schema, "strict": True}
+
+
+class Started(_Lenient):
+    """The provider accepted the streamed call."""
+
+    provider_call_id: str
+    provider: str
+    model: str
+
+
+class TextDelta(_Lenient):
+    delta: str
+
+
+class RefusalDelta(_Lenient):
+    delta: str
+
+
+class Completed(_Lenient):
+    """The final answer; after a resubmission its text is the authoritative one."""
+
+    result: CallResult
+
+
+StreamEvent = Started | TextDelta | RefusalDelta | Completed

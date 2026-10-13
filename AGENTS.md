@@ -69,7 +69,11 @@ docker compose run --rm api llm-gateway-admin grants show      # every grant and
   - `stub_adapter.py`: scripted answers and failures for development keys.
   - `providers.py`: the failure categories and `failure_policy`.
   - `results.py`: Fernet-encrypted replay storage.
-  - `service.py`: `run_call`, shielded so a disconnect still settles.
+  - `service.py`: `run_call` and the shared `prepare_call` and
+    `finish_call`, shielded so a disconnect still settles.
+  - `streaming.py`: streamed calls. A producer task reads the provider
+    stream and always settles; the SSE consumer only detaches on a
+    disconnect.
 - `src/llm_gateway/api/routes_responses.py`: `POST /v1/responses` and the
   allowance headers.
 - `src/llm_gateway/calls/`:
@@ -98,7 +102,8 @@ docker compose run --rm api llm-gateway-admin grants show      # every grant and
 - `clients/python/`: the `llm-gateway-client` uv workspace package.
   - `errors.py` maps every problem code; an unknown code fails closed.
   - `client.py` holds the retry rules and the grant-sized limiter, async and
-    sync.
+    sync, and `responses.stream`, which resubmits the call ID after a lost
+    stream.
   - Unit tests live in `clients/python/tests`. Contract tests against the
     real app are in `tests/test_client_contract.py`, including a guard that
     every gateway problem code is mapped.

@@ -10,10 +10,12 @@ from typing import Any
 import httpx2
 import pytest
 from llm_gateway_client import (
+    Completed,
     ExecutionUnknownError,
     GatewayClient,
     InvalidRequestError,
     RetryableError,
+    TextDelta,
     json_schema,
 )
 from llm_gateway_client.errors import KNOWN_CODES
@@ -43,6 +45,36 @@ class DropFirstResponse(httpx2.AsyncBaseTransport):
             self.dropped = True
             raise httpx2.ReadError("connection dropped after the gateway answered")
         return response
+
+
+class _BreakAfterTwoEvents(httpx2.AsyncByteStream):
+    def __init__(self, inner: httpx2.AsyncByteStream) -> None:
+        self.inner = inner
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        body = b"".join([chunk async for chunk in self.inner])
+        yield b"".join(frame + b"\n\n" for frame in body.split(b"\n\n")[:2])
+        raise httpx2.ReadError("connection dropped mid-stream")
+
+
+class DropFirstStream(httpx2.AsyncBaseTransport):
+    """Delivers two events of the first stream, then loses the connection."""
+
+    def __init__(self, inner: httpx2.AsyncBaseTransport) -> None:
+        self.inner = inner
+        self.dropped = False
+
+    async def handle_async_request(self, request: httpx2.Request) -> httpx2.Response:
+        response = await self.inner.handle_async_request(request)
+        if self.dropped:
+            return response
+        self.dropped = True
+        assert isinstance(response.stream, httpx2.AsyncByteStream)
+        return httpx2.Response(
+            response.status_code,
+            headers=response.headers,
+            stream=_BreakAfterTwoEvents(response.stream),
+        )
 
 
 async def _no_wait(_seconds: float) -> None:
@@ -98,6 +130,52 @@ async def test_lost_response_is_recovered_by_replay(calls: Calls) -> None:
 
     assert result.replayed is True
     assert [row[:2] for row in await calls.ledger()] == [("lost", "completed")]
+
+
+async def test_streamed_call_through_the_app(calls: Calls) -> None:
+    client = _client(calls)
+
+    events = [
+        event
+        async for event in client.responses.stream(
+            provider_call_id="s1", operation="demo", model=STUB, input="one two three"
+        )
+    ]
+
+    assert "".join(e.delta for e in events if isinstance(e, TextDelta)) == "stub: one two three"
+    assert isinstance(events[-1], Completed)
+    assert events[-1].result.output_text == "stub: one two three"
+
+
+async def test_streamed_error_event_raises_through_the_app(calls: Calls) -> None:
+    client = _client(calls)
+
+    with pytest.raises(ExecutionUnknownError):
+        async for _event in client.responses.stream(
+            provider_call_id="s2",
+            operation="demo",
+            model=STUB,
+            input="one two three four",
+            stub={"scenario": "fail_mid_stream"},
+        ):
+            pass
+
+
+async def test_dropped_stream_is_recovered_by_replay(calls: Calls) -> None:
+    client = _client(calls, transport=DropFirstStream)
+
+    events = [
+        event
+        async for event in client.responses.stream(
+            provider_call_id="s3", operation="demo", model=STUB, input="one two three"
+        )
+    ]
+
+    assert [type(e).__name__ for e in events] == ["Started", "TextDelta", "Completed"]
+    assert isinstance(events[-1], Completed)
+    assert events[-1].result.replayed is True
+    assert events[-1].result.output_text == "stub: one two three"
+    assert [row[:2] for row in await calls.ledger()] == [("s3", "completed")]
 
 
 @pytest.mark.parametrize(

@@ -9,15 +9,32 @@ default, so retries are off and the gateway's failure policy decides.
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncIterator
 from typing import Any
 
 import httpx2
 import openai
 from openai import AsyncOpenAI
-from openai.types.responses import Response
+from openai.types.responses import (
+    Response,
+    ResponseCompletedEvent,
+    ResponseCreatedEvent,
+    ResponseErrorEvent,
+    ResponseFailedEvent,
+    ResponseIncompleteEvent,
+    ResponseRefusalDeltaEvent,
+    ResponseTextDeltaEvent,
+)
 
 from llm_gateway.catalogue.pricing import TokenUsage
-from llm_gateway.llm.providers import ProviderFailure, ProviderSuccess
+from llm_gateway.llm.providers import (
+    ProviderFailure,
+    ProviderSuccess,
+    StreamEvent,
+    StreamRefusal,
+    StreamStarted,
+    StreamText,
+)
 from llm_gateway.llm.request import FilePart, ImagePart, Message, ResponseRequest, TextPart
 from llm_gateway.llm.resolve import ResolvedCall
 
@@ -183,6 +200,54 @@ def _texts(response: Any) -> tuple[str, str | None]:
     return "".join(texts), ("\n".join(refusals) if refusals else None)
 
 
+def result_from_response(
+    response: Response, request_id: str | None
+) -> ProviderSuccess | ProviderFailure:
+    """The outcome of a finished Responses API object, streamed or not."""
+    usage, reasoning = _usage(response.usage)
+    if response.status == "failed":
+        error = response.error
+        return ProviderFailure(
+            "provider_failed",
+            _safe_code(getattr(error, "code", None)),
+            None,
+            usage if response.usage is not None else None,
+            request_id,
+        )
+    if response.status not in ("completed", "incomplete"):
+        # queued, in_progress, cancelled: not a finished answer.
+        return ProviderFailure(
+            "execution_unknown", _safe_code(response.status), None, None, request_id
+        )
+    output_text, refusal = _texts(response)
+    details = response.incomplete_details
+    return ProviderSuccess(
+        status=response.status,
+        output_text=output_text,
+        refusal=refusal,
+        incomplete_reason=getattr(details, "reason", None) if details else None,
+        usage=usage,
+        reasoning_tokens=reasoning,
+        service_tier=response.service_tier,
+        provider_response_id=response.id,
+        provider_request_id=request_id,
+    )
+
+
+def classify_stream_error(code: str | None, *, accepted: bool) -> ProviderFailure:
+    """An `error` event: before acceptance it says why the call never ran."""
+    safe = _safe_code(code)
+    if accepted:
+        return ProviderFailure("provider_failed", safe)
+    if code in _ACCOUNT_CODES:
+        return ProviderFailure("account_blocked", safe)
+    if code in ("rate_limit_exceeded", "slow_down"):
+        return ProviderFailure("temporary_throttle", safe)
+    if code in ("server_error", "server_is_overloaded"):
+        return ProviderFailure("temporary_overload", safe)
+    return ProviderFailure("provider_failed", safe)
+
+
 class OpenAIAdapter:
     def __init__(self, client: AsyncOpenAI) -> None:
         self._client = client
@@ -208,31 +273,71 @@ class OpenAIAdapter:
             return ProviderFailure(
                 "execution_unknown", "invalid_provider_response", None, None, request_id
             )
-        usage, reasoning = _usage(response.usage)
-        if response.status == "failed":
-            error = response.error
-            return ProviderFailure(
-                "provider_failed",
-                _safe_code(getattr(error, "code", None)),
-                None,
-                usage if response.usage is not None else None,
-                request_id,
+        return result_from_response(response, request_id)
+
+    async def execute_stream(
+        self, resolved: ResolvedCall, request: ResponseRequest
+    ) -> AsyncIterator[StreamEvent]:
+        """Stream the call. Once OpenAI answered 200 the request was accepted, so any
+        later loss is `execution_unknown` unless an explicit event says otherwise."""
+        try:
+            stream = await self._client.responses.create(
+                **build_request(resolved, request),
+                stream=True,
+                stream_options={"include_obfuscation": False},
+                extra_headers={"X-Client-Request-Id": request.provider_call_id},
             )
-        if response.status not in ("completed", "incomplete"):
-            # queued, in_progress, cancelled: not a finished answer from a direct call.
-            return ProviderFailure(
-                "execution_unknown", _safe_code(response.status), None, None, request_id
+        except openai.APIStatusError as exc:
+            yield classify_status_error(exc)
+            return
+        except openai.APIConnectionError as exc:
+            yield classify_connection_error(exc)
+            return
+        request_id = stream.response.headers.get("x-request-id")
+        accepted = False
+        try:
+            async for event in stream:
+                if isinstance(event, ResponseCreatedEvent):
+                    accepted = True
+                    yield StreamStarted(request_id)
+                elif isinstance(event, ResponseTextDeltaEvent):
+                    yield StreamText(event.delta)
+                elif isinstance(event, ResponseRefusalDeltaEvent):
+                    yield StreamRefusal(event.delta)
+                elif isinstance(
+                    event, ResponseCompletedEvent | ResponseIncompleteEvent | ResponseFailedEvent
+                ):
+                    yield result_from_response(event.response, request_id)
+                    return
+                elif isinstance(event, ResponseErrorEvent):
+                    yield classify_stream_error(event.code, accepted=accepted)
+                    return
+        except openai.APIStatusError as exc:
+            yield (
+                classify_status_error(exc)
+                if not accepted
+                else ProviderFailure(
+                    "execution_unknown", _safe_code(exc.code), None, None, request_id
+                )
             )
-        output_text, refusal = _texts(response)
-        details = response.incomplete_details
-        return ProviderSuccess(
-            status=response.status,
-            output_text=output_text,
-            refusal=refusal,
-            incomplete_reason=getattr(details, "reason", None) if details else None,
-            usage=usage,
-            reasoning_tokens=reasoning,
-            service_tier=response.service_tier,
-            provider_response_id=response.id,
-            provider_request_id=request_id,
-        )
+            return
+        except openai.APIConnectionError as exc:
+            # Checked before APIError, its base class: a lost or timed-out stream.
+            yield (
+                ProviderFailure("execution_unknown", type(exc).__name__, None, None, request_id)
+                if accepted
+                else classify_connection_error(exc)
+            )
+            return
+        except openai.APIError as exc:
+            # The SDK raises for a payload with a top-level error object.
+            yield classify_stream_error(getattr(exc, "code", None), accepted=accepted)
+            return
+        except Exception as exc:
+            logger.warning("OpenAI stream interrupted: %s", type(exc).__name__)
+            yield ProviderFailure("execution_unknown", type(exc).__name__, None, None, request_id)
+            return
+        finally:
+            await stream.close()
+        # The stream ended without a terminal event: the outcome is unknown.
+        yield ProviderFailure("execution_unknown", "stream_ended", None, None, request_id)

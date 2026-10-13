@@ -3,9 +3,17 @@
 from __future__ import annotations
 
 import json
+from collections.abc import AsyncIterator
 
 from llm_gateway.catalogue.pricing import TokenUsage
-from llm_gateway.llm.providers import FailureCategory, ProviderFailure, ProviderSuccess
+from llm_gateway.llm.providers import (
+    FailureCategory,
+    ProviderFailure,
+    ProviderSuccess,
+    StreamEvent,
+    StreamStarted,
+    StreamText,
+)
 from llm_gateway.llm.request import Message, ResponseRequest, TextPart
 from llm_gateway.llm.resolve import ResolvedCall
 
@@ -68,3 +76,21 @@ class StubAdapter:
             provider_response_id=f"stub-{request.provider_call_id}",
             provider_request_id=None,
         )
+
+    async def execute_stream(
+        self, resolved: ResolvedCall, request: ResponseRequest
+    ) -> AsyncIterator[StreamEvent]:
+        """The same answers word by word; `fail_mid_stream` breaks after two words."""
+        result = await self.execute(resolved, request)
+        if isinstance(result, ProviderFailure):
+            yield result  # every scripted failure happens before acceptance
+            return
+        yield StreamStarted()
+        words = result.output_text.split(" ")
+        failing = request.stub is not None and request.stub.scenario == "fail_mid_stream"
+        for index, word in enumerate(words):
+            if failing and index == 2:
+                yield ProviderFailure("execution_unknown", "stub_fail_mid_stream")
+                return
+            yield StreamText(word if index == 0 else f" {word}")
+        yield result

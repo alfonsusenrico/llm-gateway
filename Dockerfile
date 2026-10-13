@@ -6,6 +6,8 @@ ENV UV_COMPILE_BYTECODE=1 \
     UV_PYTHON_DOWNLOADS=never
 WORKDIR /app
 COPY pyproject.toml uv.lock README.md LICENSE ./
+# Workspace member metadata only; the client itself is a dev dependency.
+COPY clients/python/pyproject.toml ./clients/python/
 RUN uv sync --locked --no-dev --no-install-project
 COPY src ./src
 RUN uv sync --locked --no-dev --no-editable

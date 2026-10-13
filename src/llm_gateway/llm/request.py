@@ -20,6 +20,7 @@ StubScenario = Literal[
     "invalid_request",
     "incomplete",
     "invalid_json",
+    "fail_mid_stream",
 ]
 
 
@@ -108,6 +109,7 @@ class ResponseRequest(_Strict):
     temperature: float | None = Field(default=None, ge=0, le=2)
     prompt_cache_key: str | None = Field(default=None, min_length=1, max_length=64)
     stub: StubScript | None = None
+    stream: bool = False
 
     @model_validator(mode="after")
     def _one_model_source(self) -> ResponseRequest:
@@ -130,9 +132,12 @@ class ResponseRequest(_Strict):
         return types
 
     def fingerprint(self) -> str:
-        """SHA-256 of the canonical request, to tell a resubmission from a different call."""
+        """SHA-256 of the canonical request, to tell a resubmission from a different call.
+
+        `stream` is left out: a call ID may be replayed streamed or not.
+        """
         canonical = json.dumps(
-            self.model_dump(mode="json", exclude_none=True, by_alias=True),
+            self.model_dump(mode="json", exclude_none=True, by_alias=True, exclude={"stream"}),
             sort_keys=True,
             separators=(",", ":"),
         )

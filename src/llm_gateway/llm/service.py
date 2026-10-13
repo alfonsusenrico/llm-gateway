@@ -51,7 +51,15 @@ class CallResponse:
     allowance: Allowance | None  # None for a replay, which admits nothing
 
 
-async def run_call(
+@dataclass(frozen=True, slots=True)
+class PreparedCall:
+    resolved: ResolvedCall
+    adapter: ProviderAdapter
+    admission: Admitted
+    pair: str
+
+
+async def prepare_call(
     deps: CallDeps,
     *,
     project_id: str,
@@ -59,7 +67,8 @@ async def run_call(
     contract: ContractV1,
     request: ResponseRequest,
     request_bytes: int,
-) -> CallResponse:
+) -> PreparedCall | CallRecord:
+    """Resolve and admit, or return the record of a call ID that already ended."""
     resolved = resolve(
         request,
         project_id=project_id,
@@ -90,43 +99,74 @@ async def run_call(
         actor=deps.actor,
     )
     if isinstance(admission, AlreadyFinished):
-        return await _replay(deps, admission.call)
-    task = asyncio.get_running_loop().create_task(
-        _execute(deps, adapter, admission, resolved, request, project_id, environment)
-    )
+        return admission.call
+    return PreparedCall(resolved, adapter, admission, f"{project_id}/{environment}")
+
+
+def keep_running(coroutine: Any) -> asyncio.Task[Any]:
+    """Run to the end even if the request that started it is cancelled."""
+    task = asyncio.get_running_loop().create_task(coroutine)
     _running.add(task)
     task.add_done_callback(_running.discard)
-    body = await asyncio.shield(task)
-    return CallResponse(body, admission.allowance)
+    return task
 
 
-async def _replay(deps: CallDeps, call: CallRecord) -> CallResponse:
+async def run_call(
+    deps: CallDeps,
+    *,
+    project_id: str,
+    environment: str,
+    contract: ContractV1,
+    request: ResponseRequest,
+    request_bytes: int,
+) -> CallResponse:
+    prepared = await prepare_call(
+        deps,
+        project_id=project_id,
+        environment=environment,
+        contract=contract,
+        request=request,
+        request_bytes=request_bytes,
+    )
+    if isinstance(prepared, CallRecord):
+        return CallResponse(await replay_body(deps, prepared), None)
+    body = await asyncio.shield(keep_running(_execute(deps, prepared, request)))
+    return CallResponse(body, prepared.admission.allowance)
+
+
+async def replay_body(deps: CallDeps, call: CallRecord) -> dict[str, Any]:
+    """The stored answer of an ended call, or its recorded problem raised again."""
     if call.state == "completed":
         body = await deps.results.load(call.call_key)
         if body is None:
             raise CallRejectedError("call_result_expired")
-        return CallResponse({**body, "replayed": True}, None)
+        return {**body, "replayed": True}
     code = call.failure_code if call.failure_code in PROBLEM_STATUS else "execution_unknown"
     raise CallRejectedError(code)
 
 
 async def _execute(
-    deps: CallDeps,
-    adapter: ProviderAdapter,
-    admission: Admitted,
-    resolved: ResolvedCall,
-    request: ResponseRequest,
-    project_id: str,
-    environment: str,
+    deps: CallDeps, prepared: PreparedCall, request: ResponseRequest
 ) -> dict[str, Any]:
     started = time.monotonic()
     try:
-        result = await adapter.execute(resolved, request)
+        result = await prepared.adapter.execute(prepared.resolved, request)
     except Exception as exc:  # an adapter defect; the request may have been sent
         logger.error("Adapter failed unexpectedly: %s", type(exc).__name__)
         result = ProviderFailure("execution_unknown", "adapter_error")
+    return await finish_call(deps, prepared, request, result, started)
+
+
+async def finish_call(
+    deps: CallDeps,
+    prepared: PreparedCall,
+    request: ResponseRequest,
+    result: ProviderSuccess | ProviderFailure,
+    started: float,
+) -> dict[str, Any]:
+    """Settle the outcome, store a completed body, and return it; raise a failure's problem."""
     latency_ms = round((time.monotonic() - started) * 1000)
-    pair = f"{project_id}/{environment}"
+    admission, resolved = prepared.admission, prepared.resolved
     if isinstance(result, ProviderFailure):
         policy = failure_policy(result)
         await settle(
@@ -139,7 +179,7 @@ async def _execute(
         )
         _log(
             admission.call_key,
-            pair,
+            prepared.pair,
             request,
             resolved,
             policy.problem_code,
@@ -184,7 +224,7 @@ async def _execute(
     await deps.results.save(admission.call_key, body)
     _log(
         admission.call_key,
-        pair,
+        prepared.pair,
         request,
         resolved,
         "completed",

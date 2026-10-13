@@ -35,12 +35,13 @@ gateway solves them once.
 | Foundation: settings, RFC 9457 errors, health, migrations | Done |
 | Owner notifier (Telegram) | Done |
 | Project contracts, per-environment API keys, admin CLI | Done |
-| Request-to-grant allocation | In review |
+| Request-to-grant allocation | Done |
 | Model catalogue and pricing | Done |
 | Call admission, usage ledger, budget enforcement | Done |
 | Direct OpenAI calls, stub provider, result replay | Done |
-| Python client | In review |
-| Streaming with function tools, hosted tools | Planned |
+| Python client | Done |
+| Streamed responses | In review |
+| Function tools, web search | Planned |
 | Async background jobs, flex tier, dynamic allocation | Planned |
 | Embeddings | Planned |
 
@@ -170,9 +171,35 @@ curl -s http://127.0.0.1:8360/v1/responses \
   - a call refused for a temporary reason runs again;
   - a call whose outcome is unknown (`execution_unknown`) never runs
     again. Use a new ID to try once more.
+- **Streaming:** `"stream": true` answers with server-sent events (see
+  below).
 - **Stub scenarios:** the stub accepts
   `"stub": {"reply": ..., "scenario": "overloaded"}` to simulate each
   failure type, so a project can test its error handling for free.
+
+### Streaming a call
+
+```bash
+curl -sN http://127.0.0.1:8360/v1/responses \
+  -H "Authorization: Bearer $DEV_KEY" -H "Content-Type: application/json" \
+  -d '{"provider_call_id": "demo-stream-1", "operation": "demo", "stream": true,
+       "model": {"provider": "stub", "model": "stub-echo"}, "input": "Hello there"}'
+```
+
+- **Events:** `response.started`, then `text.delta` and `refusal.delta`
+  events, and finally `response.completed` with the same body as a direct
+  call, including usage and cost. A failure after the start arrives as one
+  `error` event with the problem fields.
+- **Refusals before the start** (budget, grant, provider unavailable) are
+  ordinary problem JSON with their status code, as for a direct call.
+- **Keep-alive:** a `: keep-alive` comment every 15 seconds keeps quiet
+  streams open while a model thinks.
+- **Disconnects:** if the client leaves, the gateway still reads the answer
+  to its end, charges its real usage, and stores it. Resubmitting the call
+  ID returns it.
+- **Replays:** resubmitting a finished call ID with `"stream": true` answers
+  with one event: `response.completed` (`replayed: true`) or `error` with the
+  recorded code.
 
 Projects send their key as `Authorization: Bearer <key>`.
 `GET /v1/projects/self` confirms which project and environment a key belongs

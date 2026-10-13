@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import ValidationError
 
 from llm_gateway.api.auth import ProjectIdentity, require_project
@@ -15,6 +15,7 @@ from llm_gateway.calls.records import AdmissionRefusedError, Allowance
 from llm_gateway.llm.errors import CallRejectedError
 from llm_gateway.llm.request import ResponseRequest
 from llm_gateway.llm.service import CallDeps, run_call
+from llm_gateway.llm.streaming import sse_body, start_stream
 from llm_gateway.money import format_usd
 
 router = APIRouter(prefix="/v1", tags=["responses"])
@@ -66,11 +67,14 @@ def allowance_headers(allowance: Allowance) -> dict[str, str]:
     }
 
 
-@router.post("/responses", responses=_RESPONSES)
+@router.post("/responses", responses=_RESPONSES, response_model=None)
 async def create_response(
     request: Request, identity: Annotated[ProjectIdentity, Depends(require_project)]
-) -> JSONResponse:
-    """Run one model call. Resubmitting the same call ID never runs it twice."""
+) -> JSONResponse | StreamingResponse:
+    """Run one model call; with `stream: true` the answer arrives as server-sent events.
+
+    Resubmitting the same call ID never runs it twice.
+    """
     deps: CallDeps = request.app.state.call_deps
     raw = await request.body()
     if len(raw) > deps.settings.request_max_bytes:
@@ -89,6 +93,20 @@ async def create_response(
             code="request_invalid", status=422, title="Request is invalid", errors=errors
         )
     try:
+        if call.stream:
+            plan = await start_stream(
+                deps,
+                project_id=identity.project_id,
+                environment=identity.environment,
+                contract=identity.contract,
+                request=call,
+                request_bytes=len(raw),
+            )
+            headers = allowance_headers(plan.allowance) if plan.allowance else {}
+            headers.update({"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+            return StreamingResponse(
+                sse_body(plan), media_type="text/event-stream", headers=headers
+            )
         result = await run_call(
             deps,
             project_id=identity.project_id,

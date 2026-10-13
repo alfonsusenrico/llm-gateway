@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import random
 import threading
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -14,7 +15,17 @@ import httpx2
 
 from llm_gateway_client import __version__
 from llm_gateway_client.errors import GatewayError, RetryableError, error_from_problem
-from llm_gateway_client.models import Allocation, CallResult, CatalogueModel, Identity
+from llm_gateway_client.models import (
+    Allocation,
+    CallResult,
+    CatalogueModel,
+    Completed,
+    Identity,
+    RefusalDelta,
+    Started,
+    StreamEvent,
+    TextDelta,
+)
 
 _TRANSPORT_RETRY_SECONDS = 1.0
 _DEFAULT_TIMEOUT = httpx2.Timeout(240.0, connect=10.0)
@@ -105,9 +116,38 @@ class _AsyncLimiter:
         return self._limit
 
 
+async def _sse_events(response: httpx2.Response) -> AsyncIterator[tuple[str, dict[str, Any]]]:
+    name, data = "", ""
+    async for line in response.aiter_lines():
+        if not line:
+            if name:
+                yield name, json.loads(data or "{}")
+            name, data = "", ""
+        elif line.startswith(":"):
+            continue  # keep-alive comment
+        elif line.startswith("event: "):
+            name = line[len("event: ") :]
+        elif line.startswith("data: "):
+            data += line[len("data: ") :]
+
+
 class _Responses:
     def __init__(self, client: GatewayClient) -> None:
         self._client = client
+
+    async def stream(
+        self,
+        *,
+        provider_call_id: str,
+        operation: str,
+        input: str | list[dict[str, Any]],
+        **options: Any,
+    ) -> AsyncIterator[StreamEvent]:
+        """Stream a call. If the connection drops, the same call ID is resubmitted and
+        the stream ends with the replayed `Completed`, whose text is authoritative."""
+        body = _call_body(provider_call_id, operation, input, {**options, "stream": True})
+        async for event in self._client._stream_call(body):
+            yield event
 
     async def create(
         self,
@@ -202,6 +242,56 @@ class GatewayClient:
                 if response.status_code == 200:
                     return response.json()
                 error = _error(response)
+            finally:
+                await self._limiter.release(new_limit)
+            wait = _next_wait(error, attempt, deadline, self._policy)
+            if wait is None:
+                raise error
+            await self._sleep(wait)
+
+    async def _stream_call(self, body: dict[str, Any]) -> AsyncIterator[StreamEvent]:
+        deadline = time.monotonic() + self._policy.max_total_seconds
+        attempt = 0
+        started = False
+        while True:
+            attempt += 1
+            await self._limiter.acquire()
+            new_limit = None
+            error: GatewayError
+            try:
+                async with self._http.stream(
+                    "POST", f"{self._base_url}/v1/responses", json=body, headers=self._headers
+                ) as response:
+                    new_limit = _concurrency_limit(response)
+                    if response.status_code != 200:
+                        await response.aread()
+                        error = _error(response)
+                    else:
+                        async for name, data in _sse_events(response):
+                            if name == "response.started" and not started:
+                                started = True
+                                yield Started.model_validate(data)
+                            elif name == "text.delta":
+                                yield TextDelta.model_validate(data)
+                            elif name == "refusal.delta":
+                                yield RefusalDelta.model_validate(data)
+                            elif name == "response.completed":
+                                yield Completed(result=CallResult.model_validate(data))
+                                return
+                            elif name == "error":
+                                raise error_from_problem(
+                                    int(data.get("status") or 502),
+                                    data,
+                                    data.get("retry_after_seconds"),
+                                )
+                        # The stream ended without its final event: resubmit the call ID.
+                        error = RetryableError(
+                            "gateway_unreachable", retry_after_seconds=_TRANSPORT_RETRY_SECONDS
+                        )
+            except httpx2.TransportError:
+                error = RetryableError(
+                    "gateway_unreachable", retry_after_seconds=_TRANSPORT_RETRY_SECONDS
+                )
             finally:
                 await self._limiter.release(new_limit)
             wait = _next_wait(error, attempt, deadline, self._policy)
