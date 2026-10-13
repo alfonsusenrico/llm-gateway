@@ -5,6 +5,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Annotated, Literal
 
+from cryptography.fernet import Fernet
 from pydantic import Field, PostgresDsn, SecretStr, ValidationError, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -42,6 +43,13 @@ class Settings(BaseSettings):
 
     # A provider call's deadline; an admitted call's lease adds a minute to it.
     llm_call_timeout_seconds: int = Field(default=180, ge=10, le=900)
+    # Unset leaves OpenAI calls refused with provider_not_configured.
+    openai_api_key: SecretStr | None = None
+    # Fernet key for stored call results; changing it makes stored results expire.
+    result_encryption_key: SecretStr
+    result_retention_seconds: int = Field(default=86_400, ge=3_600, le=604_800)
+    request_max_bytes: int = Field(default=20_000_000, ge=10_000, le=50_000_000)
+    default_max_output_tokens: int = Field(default=4_096, ge=1, le=128_000)
 
     # Shared capacity that grants divide, and the guaranteed minimum per grant.
     allocation_capacity_requests_per_minute: int = Field(default=120, ge=1, le=100_000)
@@ -57,6 +65,12 @@ class Settings(BaseSettings):
     notifier_telegram_chat_id: str | None = Field(default=None, pattern=r"^-?\d{1,20}$")
     notifier_dedupe_window_seconds: int = Field(default=900, ge=60, le=86_400)
     notifier_max_event_age_seconds: int = Field(default=86_400, ge=3_600, le=604_800)
+
+    @field_validator("result_encryption_key")
+    @classmethod
+    def _result_key_is_fernet(cls, value: SecretStr) -> SecretStr:
+        Fernet(value.get_secret_value().encode("ascii"))
+        return value
 
     @field_validator("project_key_pepper")
     @classmethod

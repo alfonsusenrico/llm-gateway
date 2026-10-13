@@ -112,4 +112,8 @@ def test_readiness_succeeds_with_a_database(test_database_url: str) -> None:
         response = test_client.get("/health/ready")
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ready", "revision": "test-revision"}
+    assert response.json() == {
+        "status": "ready",
+        "revision": "test-revision",
+        "providers": {"openai": "not_configured"},
+    }

@@ -8,7 +8,7 @@ from llm_gateway.admin import cli
 from llm_gateway.admin.notifier_commands import send_test_alert
 from llm_gateway.notifier.channels import DeliveryResult
 from llm_gateway.notifier.delivery import deliver_due
-from tests.conftest import TEST_PEPPER
+from tests.conftest import TEST_PEPPER, TEST_RESULT_KEY
 from tests.notifier_fakes import FakeChannel
 
 pytestmark = pytest.mark.anyio
@@ -74,6 +74,7 @@ def test_cli_reports_unrecordable_alert_without_a_traceback(
 ) -> None:
     monkeypatch.setenv("DATABASE_URL", "postgresql://unused:unused@127.0.0.1:1/unused")
     monkeypatch.setenv("PROJECT_KEY_PEPPER", TEST_PEPPER)
+    monkeypatch.setenv("RESULT_ENCRYPTION_KEY", TEST_RESULT_KEY)
     monkeypatch.setattr(cli, "_POOL_OPEN_TIMEOUT_SECONDS", 0.5)
 
     status = cli.main(["notifier", "test"])

@@ -16,6 +16,8 @@ from llm_gateway.settings import Settings
 UNREACHABLE_DATABASE_URL = "postgresql://gateway:unused@127.0.0.1:1/gateway"
 # A fixed 32-byte pepper (base64url) so tests can compute expected hashes.
 TEST_PEPPER = "dGVzdC1wZXBwZXItdGVzdC1wZXBwZXItdGVzdC1wZXBwZXI"
+# A fixed Fernet key for stored results in tests.
+TEST_RESULT_KEY = "dGVzdC1yZXN1bHQta2V5LXRlc3QtcmVzdWx0LWtleS0="
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
@@ -35,6 +37,7 @@ def make_settings(database_url: str = UNREACHABLE_DATABASE_URL, **overrides: obj
         "app_revision": "test-revision",
         "database_url": database_url,
         "project_key_pepper": TEST_PEPPER,
+        "result_encryption_key": TEST_RESULT_KEY,
     }
     values.update(overrides)
     return Settings.model_validate(values)

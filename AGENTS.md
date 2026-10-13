@@ -62,6 +62,16 @@ docker compose run --rm api llm-gateway-admin grants show      # every grant and
   - `profiles.py`: contract profile checks, run on save for new or changed
     profiles only.
 - `src/llm_gateway/api/routes_catalogue.py`: `GET /v1/catalogue`.
+- `src/llm_gateway/llm/`:
+  - `request.py`: the strict `POST /v1/responses` body.
+  - `resolve.py`: profile, catalogue, settings, and input checks.
+  - `openai_adapter.py`: `store=false`, no SDK retries, `X-Client-Request-Id`.
+  - `stub_adapter.py`: scripted answers and failures for development keys.
+  - `providers.py`: the failure categories and `failure_policy`.
+  - `results.py`: Fernet-encrypted replay storage.
+  - `service.py`: `run_call`, shielded so a disconnect still settles.
+- `src/llm_gateway/api/routes_responses.py`: `POST /v1/responses` and the
+  allowance headers.
 - `src/llm_gateway/calls/`:
   - `admission.py`: `admit()`, one transaction under a global advisory lock,
     with checks in a fixed order.
@@ -102,6 +112,13 @@ docker compose run --rm api llm-gateway-admin grants show      # every grant and
   reviewed change. A price change adds a new `effective_from` entry with its
   `source_url` and never edits an old one. Every model needs a standard
   price in effect, or start-up fails.
+- Provider calls follow the failure table in `llm/providers.py`:
+  - a confirmed refusal is retryable under the same call ID;
+  - a send that may have reached the provider is `execution_unknown` and
+    never runs again;
+  - provider messages are never logged or returned, only status and code.
+- Every OpenAI request sends `store: false`. Never enable provider-side
+  storage or conversation state.
 - Raw project keys are printed once, at issue, and never stored or logged.
   `PROJECT_KEY_PEPPER` must never change; changing it invalidates every key.
 - Every limit and budget is a backend grant. A project's contract holds only

@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from llm_gateway.admin import cli
-from tests.conftest import TEST_PEPPER
+from tests.conftest import TEST_PEPPER, TEST_RESULT_KEY
 
 pytestmark = pytest.mark.db
 KEY = re.compile(r"lgw\.(dev|prod)\.[a-z2-7]{12}\.[A-Za-z0-9_-]{43}")
@@ -19,6 +19,7 @@ def admin(
 ):
     monkeypatch.setenv("DATABASE_URL", migrated_schema_url)
     monkeypatch.setenv("PROJECT_KEY_PEPPER", TEST_PEPPER)
+    monkeypatch.setenv("RESULT_ENCRYPTION_KEY", TEST_RESULT_KEY)
 
     def run(*argv: str) -> tuple[int, str]:
         status = cli.main(list(argv))

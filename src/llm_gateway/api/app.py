@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
@@ -20,8 +21,14 @@ from llm_gateway.api.routes_allocation import GrantDirectory
 from llm_gateway.api.routes_allocation import router as allocation_router
 from llm_gateway.api.routes_catalogue import router as catalogue_router
 from llm_gateway.api.routes_projects import router as projects_router
+from llm_gateway.api.routes_responses import router as responses_router
 from llm_gateway.catalogue.model import get_catalogue
 from llm_gateway.db.pool import create_pool, database_ready
+from llm_gateway.llm.openai_adapter import OpenAIAdapter, create_openai_client
+from llm_gateway.llm.providers import ProviderAdapter
+from llm_gateway.llm.results import ResultStore
+from llm_gateway.llm.service import CallDeps
+from llm_gateway.llm.stub_adapter import StubAdapter
 from llm_gateway.logging_setup import configure_logging, request_id_var
 from llm_gateway.notifier.events import wait_for_background_alerts
 from llm_gateway.settings import Settings, load_settings
@@ -47,10 +54,31 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.db_pool = pool
         app.state.authenticator = Authenticator(settings, pool)
         app.state.grant_directory = GrantDirectory(pool)
+        adapters: dict[str, ProviderAdapter] = {"stub": StubAdapter()}
+        openai_client = None
+        if settings.openai_api_key is not None:
+            openai_client = create_openai_client(
+                settings.openai_api_key.get_secret_value(), settings.llm_call_timeout_seconds
+            )
+            adapters["openai"] = OpenAIAdapter(openai_client)
+        app.state.call_deps = CallDeps(
+            pool=pool,
+            settings=settings,
+            catalogue=get_catalogue(),
+            results=ResultStore(
+                pool,
+                settings.result_encryption_key.get_secret_value(),
+                settings.result_retention_seconds,
+            ),
+            adapters=adapters,
+            actor=f"api:{os.getpid()}",
+        )
         try:
             yield
         finally:
             await wait_for_background_alerts()
+            if openai_client is not None:
+                await openai_client.close()
             await pool.close()
 
     app = FastAPI(
@@ -64,6 +92,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(projects_router)
     app.include_router(allocation_router)
     app.include_router(catalogue_router)
+    app.include_router(responses_router)
 
     @app.middleware("http")
     async def assign_request_id(
@@ -102,6 +131,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 title="Database is unavailable",
                 retry_after_seconds=_READINESS_RETRY_AFTER_SECONDS,
             )
-        return JSONResponse({"status": "ready", "revision": settings.app_revision})
+        providers = {"openai": "configured" if settings.openai_api_key else "not_configured"}
+        return JSONResponse(
+            {"status": "ready", "revision": settings.app_revision, "providers": providers}
+        )
 
     return app
