@@ -1,0 +1,26 @@
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Local data, dumps, and caches
+.data/
+*.dump
+*.sql.gz
+__pycache__/
+.venv/
+.pytest_cache/
+.ruff_cache/
+coverage/
+dist/
+build/
+
+# OS and editor
+.DS_Store
+.idea/
+.vscode/
+
+# Private planning notes (this repository is public)
+research/

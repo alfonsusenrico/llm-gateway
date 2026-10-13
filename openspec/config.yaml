@@ -1,0 +1,25 @@
+schema: spec-driven
+
+context: |
+  Project: LLM Gateway - the owner's personal gateway that every AI project calls instead of a provider: project contracts and keys, request-to-grant allocation, provider execution with a failure-certainty policy, a usage and cost ledger under a hard monthly cap, and an owner notifier.
+  Capabilities: database, api-consumers, llm, personal-data, background-jobs (deployed is added in the deployment phase).
+  Stack: Python 3.13 FastAPI (uv, ruff, Pyright, pytest), PostgreSQL 16 with hand-written SQL migrations (psycopg 3), OpenAI SDK adapter, Docker Compose.
+  Sources of truth: approved specs; the owner's local phased plan (research/, not published); official provider API and pricing documentation; owner confirmations.
+  Boundaries: owns provider keys and execution, contracts, grants, failure classification, pricing, the ledger, and alerts; projects own prompts, the meaning of outputs, their tools, memory, jobs, and UI. No browser login or proxy.
+  LLM boundary: the gateway executes calls and parses provider formats; it never logs prompts or output and never infers a model.
+
+rules:
+  proposal:
+    - State the Expected Outcome as an observable result for the user or owner.
+    - List Non-goals.
+    - State whether the change adds a project capability and which standards that requires.
+    - State the effect on the contract or client package and whether it is additive.
+  design:
+    - Number each decision and record rejected alternatives with reasons.
+    - Describe data, API, and failure behaviour; include migration and rollback when data changes.
+    - For provider or execution changes, state the effect on execution certainty, idempotency, and spend.
+  tasks:
+    - Group tasks in phases; end each phase with an "Expected Result" line.
+    - Every task names the evidence that proves it (command, test, HTTP check).
+    - Mark tasks that need a paid provider call as owner-authorised.
+    - The final task reports the branch and the verification record; the owner decides push and deployment.

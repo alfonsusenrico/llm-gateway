@@ -1,0 +1,65 @@
+#!/bin/sh
+# agent-framework commit-msg hook: subject-only conventional commits.
+# Self-contained on purpose (it is copied into each repository's .githooks/).
+
+# Keep SUBJECT_PATTERN identical to the copy in hooks/pre-push; tests assert it.
+SUBJECT_PATTERN='^(feat|fix|docs|refactor|test|chore|ci|perf|build|revert)(\([a-z0-9-]+\))?!?: [^ ].{0,71}$'
+MAX_SUBJECT_LENGTH=72
+ALLOWED_TYPES='feat fix docs refactor test chore ci perf build revert'
+
+message_file=$1
+if [ -z "$message_file" ] || [ ! -f "$message_file" ]; then
+    echo "commit-msg: message file not found: $message_file" >&2
+    exit 1
+fi
+
+# Drop comment lines, stop at the scissors line, and remove leading and trailing blank lines.
+cleaned=$(awk '
+    $0 == "# ------------------------ >8 ------------------------" { exit }
+    /^#/ { next }
+    { sub(/\r$/, ""); lines[++count] = $0 }
+    END {
+        first = 1
+        while (first <= count && lines[first] ~ /^[[:space:]]*$/) first++
+        last = count
+        while (last >= first && lines[last] ~ /^[[:space:]]*$/) last--
+        for (i = first; i <= last; i++) print lines[i]
+    }
+' "$message_file")
+
+subject=$(printf '%s\n' "$cleaned" | sed -n '1p')
+
+case "$subject" in
+    "Merge "* | 'Revert "'*)
+        exit 0
+        ;;
+esac
+
+fail() {
+    echo "commit-msg: $1" >&2
+    echo "  subject: $subject" >&2
+    echo "  expected: <type>(<scope>)?!?: <description>, at most $MAX_SUBJECT_LENGTH characters" >&2
+    echo "  allowed types: $ALLOWED_TYPES" >&2
+    echo "  subject-only commits; no body or trailers (including Co-Authored-By)" >&2
+    exit 1
+}
+
+if [ -z "$subject" ]; then
+    fail "empty commit message"
+fi
+
+subject_length=$(printf '%s' "$subject" | awk '{ print length($0) }')
+if [ "$subject_length" -gt "$MAX_SUBJECT_LENGTH" ]; then
+    fail "subject is $subject_length characters (limit $MAX_SUBJECT_LENGTH)"
+fi
+
+if ! printf '%s\n' "$subject" | grep -Eq "$SUBJECT_PATTERN"; then
+    fail "subject does not follow the conventional commit format"
+fi
+
+extra_lines=$(printf '%s\n' "$cleaned" | sed '1d' | grep -c '[^[:space:]]')
+if [ "$extra_lines" -gt 0 ]; then
+    fail "message has a body or trailers"
+fi
+
+exit 0

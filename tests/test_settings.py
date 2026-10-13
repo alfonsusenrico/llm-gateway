@@ -1,0 +1,40 @@
+from __future__ import annotations
+
+import pytest
+
+from llm_gateway.settings import SettingsError, load_settings
+
+
+def test_production_is_the_default_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("APP_ENV", raising=False)
+    monkeypatch.setenv("DATABASE_URL", "postgresql://gateway:secret@db:5432/gateway")
+
+    settings = load_settings()
+
+    assert settings.app_env == "production"
+
+
+def test_missing_required_setting_names_the_variable(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+
+    with pytest.raises(SettingsError, match="DATABASE_URL"):
+        load_settings()
+
+
+def test_invalid_value_is_never_echoed(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", "not-a-url-with-secret-token-123")
+
+    with pytest.raises(SettingsError) as raised:
+        load_settings()
+
+    assert "secret-token-123" not in str(raised.value)
+    assert "DATABASE_URL" in str(raised.value)
+
+
+def test_pool_bounds_must_be_ordered(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", "postgresql://gateway:secret@db:5432/gateway")
+    monkeypatch.setenv("DB_POOL_MIN_SIZE", "6")
+    monkeypatch.setenv("DB_POOL_MAX_SIZE", "5")
+
+    with pytest.raises(SettingsError, match="DB_POOL_MIN_SIZE"):
+        load_settings()

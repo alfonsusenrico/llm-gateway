@@ -1,0 +1,149 @@
+#!/bin/sh
+# agent-framework pre-push hook: re-validate pushed commit messages and keep
+# pushes to protected branches to documentation-only changes.
+# Self-contained on purpose (it is copied into each repository's .githooks/).
+# Protected branches come from the multi-valued git config key
+# agentframework.protectedBranch; when it is unset they are main and master.
+# Set AF_ALLOW_PROTECTED_PUSH=1 (or the older AF_ALLOW_MAIN_PUSH=1) to bypass only
+# the protected-branch documentation rule; commit messages are still checked.
+
+# Keep SUBJECT_PATTERN identical to the copy in hooks/commit-msg; tests assert it.
+SUBJECT_PATTERN='^(feat|fix|docs|refactor|test|chore|ci|perf|build|revert)(\([a-z0-9-]+\))?!?: [^ ].{0,71}$'
+MAX_SUBJECT_LENGTH=72
+
+status=0
+
+# One branch name per line; git prints each configured value on its own line.
+protected_branches=$(git config --get-all agentframework.protectedBranch 2>/dev/null)
+if [ -z "$protected_branches" ]; then
+    protected_branches='main
+master'
+fi
+
+reject() {
+    echo "pre-push: $1" >&2
+    status=1
+}
+
+is_protected_branch() {
+    branch=$1
+    found=1
+    saved_ifs=$IFS
+    IFS='
+'
+    set -f
+    for candidate in $protected_branches; do
+        if [ "${candidate#refs/heads/}" = "$branch" ]; then
+            found=0
+            break
+        fi
+    done
+    set +f
+    IFS=$saved_ifs
+    return "$found"
+}
+
+protected_push_allowed() {
+    [ "${AF_ALLOW_PROTECTED_PUSH:-}" = "1" ] || [ "${AF_ALLOW_MAIN_PUSH:-}" = "1" ]
+}
+
+is_all_zeros() {
+    case $1 in
+        *[!0]*) return 1 ;;
+        *) return 0 ;;
+    esac
+}
+
+check_message() {
+    commit=$1
+    short=$(git rev-parse --short "$commit")
+    parent_count=$(git rev-list --parents -n 1 "$commit" | awk '{ print NF - 1 }')
+    if [ "$parent_count" -gt 1 ]; then
+        return 0
+    fi
+    subject=$(git log -1 --format=%s "$commit")
+    case "$subject" in
+        "Merge "* | 'Revert "'*)
+            return 0
+            ;;
+        "fixup! "* | "squash! "* | "amend! "*)
+            reject "$short: autosquash commit '$subject' must be squashed before pushing"
+            return 0
+            ;;
+    esac
+    subject_length=$(printf '%s' "$subject" | awk '{ print length($0) }')
+    if [ "$subject_length" -gt "$MAX_SUBJECT_LENGTH" ]; then
+        reject "$short: subject is $subject_length characters (limit $MAX_SUBJECT_LENGTH)"
+    fi
+    if ! printf '%s\n' "$subject" | grep -Eq "$SUBJECT_PATTERN"; then
+        reject "$short: subject '$subject' is not a conventional commit (feat|fix|docs|refactor|test|chore|ci|perf|build|revert)"
+    fi
+    body=$(git log -1 --format=%b "$commit" | tr -d '[:space:]')
+    if [ -n "$body" ]; then
+        reject "$short: subject-only commits; no body or trailers (including Co-Authored-By)"
+    fi
+}
+
+changed_files() {
+    commit=$1
+    parent_count=$(git rev-list --parents -n 1 "$commit" | awk '{ print NF - 1 }')
+    if [ "$parent_count" -gt 1 ]; then
+        git diff --name-only "$commit^1" "$commit"
+    else
+        git diff-tree --no-commit-id --name-only -r --root "$commit"
+    fi
+}
+
+check_docs_only() {
+    commit=$1
+    short=$(git rev-parse --short "$commit")
+    files=$(changed_files "$commit")
+    # Split on newlines only and disable globbing so unusual file names stay intact.
+    saved_ifs=$IFS
+    IFS='
+'
+    set -f
+    for path in $files; do
+        case "$path" in
+            *.md | docs/*) ;;
+            *)
+                reject "$short changes $path; only *.md and docs/** may be pushed to $2 (protected branch; push a topic branch instead)"
+                break
+                ;;
+        esac
+    done
+    set +f
+    IFS=$saved_ifs
+}
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+    if [ -z "$local_sha" ] || is_all_zeros "$local_sha"; then
+        continue
+    fi
+    if is_all_zeros "$remote_sha" || ! git cat-file -e "$remote_sha^{commit}" 2>/dev/null; then
+        commits=$(git rev-list "$local_sha" --not --remotes)
+    else
+        commits=$(git rev-list "$remote_sha..$local_sha")
+    fi
+
+    protected_target=""
+    case "$remote_ref" in
+        refs/heads/*)
+            if is_protected_branch "${remote_ref#refs/heads/}"; then
+                protected_target=${remote_ref#refs/heads/}
+            fi
+            ;;
+    esac
+
+    for commit in $commits; do
+        check_message "$commit"
+        if [ -n "$protected_target" ] && ! protected_push_allowed; then
+            check_docs_only "$commit" "$protected_target"
+        fi
+    done
+done
+
+if [ "$status" -ne 0 ]; then
+    echo "pre-push: push rejected." >&2
+fi
+exit "$status"

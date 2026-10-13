@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Create a local .env from .env.example with a generated database password; never overwrites.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+if [[ -e .env ]]; then
+  echo ".env already exists; leaving it unchanged."
+  exit 0
+fi
+
+password="$(python3 -c 'import secrets; print(secrets.token_urlsafe(24))')"
+port="5433"
+umask 077
+sed \
+  -e "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=${password}|" \
+  -e "s|^DATABASE_URL=.*|DATABASE_URL=postgresql://llm_gateway:${password}@127.0.0.1:${port}/llm_gateway|" \
+  -e "s|^TEST_DATABASE_URL=.*|TEST_DATABASE_URL=postgresql://llm_gateway:${password}@127.0.0.1:${port}/llm_gateway|" \
+  .env.example > .env
+echo "Created .env with a generated local database password."

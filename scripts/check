@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Run every project check, as the pre-push hook does: lock, format, lint, types, tests
+# (database tests required), compose config, and OpenSpec validation.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+if [[ -z "${TEST_DATABASE_URL:-}" && -f .env ]]; then
+  TEST_DATABASE_URL="$(sed -n 's/^TEST_DATABASE_URL=\([^ ]*\).*/\1/p' .env)"
+  export TEST_DATABASE_URL
+fi
+export REQUIRE_DB=1
+
+uv lock --check
+uv run ruff format --check
+uv run ruff check
+uv run pyright
+uv run pytest -q
+docker compose config -q
+openspec validate --all --no-interactive
