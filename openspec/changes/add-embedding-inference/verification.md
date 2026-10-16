@@ -2,6 +2,7 @@
 
 - Date: 2026-10-16; development only.
 - Branch: `feat/embedding-inference`, based on merged `2c6c953` (PR #17).
+- Implementation: `b3d6ea0`. Review PR: https://github.com/alfonsusenrico/llm-gateway/pull/18.
 - Gateway/client release: `0.6.0`; no SQL migration or new inference dependency.
 - Authority: endpoint-focused continuation, plus the owner's explicit approval of
   both local GPU and stateless OpenAI embeddings. AGENTS.md records the Embeddings
@@ -13,7 +14,7 @@
 
 | Check | Result |
 | --- | --- |
-| Full repository gate | Passed at the 839-test checkpoint: lock, format, Ruff, Pyright 0, DB required, Compose and 12 OpenSpec items; final response-bound regression checks also require the pre-commit gate |
+| Full repository gate | `./scripts/check`: 842 passed, DB required, lock, format, Ruff, Pyright 0, Compose and 12 OpenSpec items |
 | Strict specifications | `openspec validate --all --strict --no-interactive`: 12 passed, 0 failed |
 | Gateway image | Built gateway 0.6.0, runtime UID 10001; Torch, Sentence Transformers and ONNX Runtime absent |
 | Real HTTP/GPU artifact check | Passed: MiniLM document batch; BGE document/query batches with different query representation; replay of all three; local token overflow refusal; discovery/schema/OpenAPI; direct/streamed stub regression and replay; cross-task conflict |

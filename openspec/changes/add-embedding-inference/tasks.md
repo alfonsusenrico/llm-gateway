@@ -19,6 +19,6 @@ Expected Result: one certain execution and accounting outcome per call, with no 
 - [x] 3.1 Add endpoint/OpenAPI and matching sync/async clients with safe retries.
 - [x] 3.2 Exercise API/database/adapter/client matrices without paid network calls.
 - [x] 3.3 Verify packaged runtime against local GPU service and record evidence/limitations.
-- [ ] 3.4 Run complete gate/strict specs, document operation and publish owner-review PR.
+- [x] 3.4 Run complete gate/strict specs, document operation and publish owner-review PR. https://github.com/alfonsusenrico/llm-gateway/pull/18.
 
 Expected Result: one independently reviewable embedding endpoint change; no deployment.
