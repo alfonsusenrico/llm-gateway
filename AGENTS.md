@@ -2,23 +2,23 @@
 
 ## Purpose and boundaries
 
-The owner's personal LLM gateway. Every AI project calls it instead of a provider.
+The owner's personal AI inference gateway. Projects call its separate LLM, embedding
+and OCR APIs instead of directly managing inference providers. Embedding and OCR
+execution are introduced in subsequent approved changes.
 
 - **The gateway owns:**
-  - provider keys and execution;
+  - encrypted project/provider credentials and local or paid inference execution;
   - project contracts and API keys;
   - request-to-grant allocation of limits and budget;
   - failure classification;
-  - pricing and the usage ledger, under a hard monthly cap (USD 5 for now);
+  - pricing and the usage ledger, under a hard paid-call monthly cap (USD 5 for now);
   - owner alerts (Telegram now, Discord later).
 - **Projects own:** their prompts, the meaning of outputs, tools, memory, jobs,
   and UI.
-- **Scope rule:** the gateway serves model calls only. Project features stay
-  in the projects that need them, with their own keys and settings:
-  conversation history, memory, embeddings and vector search, tool execution
-  and loops, web search, and any other third-party API, even when it uses the
-  same provider as the gateway. Add nothing to the gateway that only some
-  projects use.
+- **Scope rule:** the gateway owns shared inference, model discovery, supported-field
+  validation, execution certainty and accounting. Projects own workflows, prompts,
+  conversation history, memory, embedding storage/indexing/search, tool execution,
+  web search, document interpretation and third-party application integrations.
 - **It never:**
   - provides browser login or proxying;
   - logs prompts or model output;
@@ -44,82 +44,27 @@ docker compose run --rm api llm-gateway-admin project --help   # registry subcom
 docker compose run --rm api llm-gateway-admin grants show      # every grant and pool use
 ```
 
-## Architecture map
+## Code references
 
-- `src/llm_gateway/settings.py`: the one typed settings object. Errors name
-  variables, never values.
-- `src/llm_gateway/api/`:
-  - `app.py`: the app factory, request IDs, health routes.
-  - `problems.py`: RFC 9457 errors and `GatewayError`.
-  - `auth.py`: the bearer-key `require_project` dependency, failed-attempt
-    throttling, and the 10 s contract cache with per-project quarantine.
-  - `routes_projects.py`: `GET /v1/projects/self`.
-  - `routes_allocation.py`: `GET /v1/allocation`, with a 10 s grant cache.
-- `src/llm_gateway/allocation/`:
-  - `policy.py`: the pure, deterministic allocation (guaranteed minimum, then
-    weighted water-filling, in integer units).
-  - `store.py`: `recompute()` under an advisory lock, skipped when the inputs
-    hash is unchanged, with reduction and restoration alerts after commit.
-- `src/llm_gateway/money.py`: USD as integer micro-USD.
-- `src/llm_gateway/catalogue/`:
-  - `models.json` and `prices.json`: the reviewed data.
-  - `model.py`: strict loading, checked at start-up.
-  - `pricing.py`: `cost_micro_usd`, rounded up; `None` means unpriced.
-  - `profiles.py`: contract profile checks, run on save for new or changed
-    profiles only.
-- `src/llm_gateway/api/routes_catalogue.py`: `GET /v1/catalogue`.
-- `src/llm_gateway/llm/`:
-  - `request.py`: the strict `POST /v1/responses` body, including function
-    tools and the `continuation` and `function_call_output` input items.
-  - `resolve.py`: profile, catalogue, settings, and input checks.
-  - `openai_adapter.py`: `store=false`, no SDK retries, `X-Client-Request-Id`.
-    Continuation items go back to OpenAI untouched; streamed items come from
-    `output_item.done`, whose reasoning content is complete.
-  - `stub_adapter.py`: scripted answers and failures for development keys.
-  - `providers.py`: the failure categories and `failure_policy`.
-  - `results.py`: Fernet-encrypted replay storage.
-  - `service.py`: `run_call` and the shared `prepare_call` and
-    `finish_call`, shielded so a disconnect still settles.
-  - `streaming.py`: streamed calls. A producer task reads the provider
-    stream and always settles; the SSE consumer only detaches on a
-    disconnect.
-- `src/llm_gateway/api/routes_responses.py`: `POST /v1/responses` and the
-  allowance headers.
-- `src/llm_gateway/calls/`:
-  - `admission.py`: `admit()`, one transaction under a global advisory lock,
-    with checks in a fixed order.
-  - `settlement.py`: `settle()`, `recover_abandoned()`, and the state
-    machine with audit events.
-  - `spend.py`: month-to-date spend.
-  - `budget.py`: the 50/80/100% threshold alerts.
-- `src/llm_gateway/projects/`:
-  - `contract.py`: contract version 1, strict, with unknown fields rejected.
-  - `keys.py`: the key format and HMAC storage.
-  - `service.py`: versioned edits under row locks, keys, import and export.
-- `src/llm_gateway/notifier/`:
-  - `events.py`: `raise_alert`, the only way gateway code alerts the owner. It
-    is best-effort and deduplicated per key.
-  - `channels.py`: the channel interface and the Telegram adapter.
-  - `delivery.py`: claiming, retries, and expiry, run by the worker.
-- `src/llm_gateway/worker.py`: the background worker process.
-- `src/llm_gateway/admin/`: the `llm-gateway-admin` CLI. Subcommands and the
-  menu share `project_commands.py`.
-- `src/llm_gateway/db/`:
-  - `pool.py`: the async pool.
-  - `migrate.py`: the checksummed, forward-only runner.
-  - `migrations/NNNN_name.sql`: hand-written migrations.
-- `clients/python/`: the `llm-gateway-client` uv workspace package.
-  - `errors.py` maps every problem code; an unknown code fails closed.
-  - `client.py` holds the retry rules and the grant-sized limiter, async and
-    sync, and `responses.stream`, which resubmits the call ID after a lost
-    stream.
-  - Unit tests live in `clients/python/tests`. Contract tests against the
-    real app are in `tests/test_client_contract.py`, including a guard that
-    every gateway problem code is mapped.
-- `tests/`: tests marked `db` need `TEST_DATABASE_URL`; `REQUIRE_DB=1` makes a
-  missing database fail.
-- The phased plan is local-only in `research/notes/`; this repository is
-  public, so `research/` is ignored by git. Specs are in `openspec/specs/`.
+- `src/llm_gateway/api/`: app/lifespan, bearer project authentication, allocation,
+  model discovery and `/v1/responses`; RFC 9457 errors in `problems.py`.
+- `catalogue/`: individual `models/*.json`, dated `prices.json`, strict loaders,
+  adapter declarations, executable request schemas and immutable alias bindings.
+- `projects/`: current/historical contracts, versioned registry edits, access
+  keys, explicit contract upgrades and encrypted provider credentials.
+- `llm/`: request/resolution, adapter factories, OpenAI/stub execution, encrypted
+  result replay, direct service and detached streaming producers.
+- `calls/`: admission, settlement/state audit, spend and budget thresholds.
+  `allocation/`: deterministic integer policy and locked recomputation.
+- `notifier/events.py`: `raise_alert`, the sole content-free alert entry point;
+  delivery/retries run in `worker.py`.
+- `admin/`: shared CLI/menu actions. `db/`: pool and forward-only migration runner.
+  `settings.py`: the sole typed settings object.
+- `clients/python/`: matching sync/async client, typed errors/results, models
+  discovery and certainty-aware retries. Contract guards: `tests/test_client_contract.py`.
+- Tests marked `db` require `TEST_DATABASE_URL`; `REQUIRE_DB=1` forbids skips.
+  Private phased plans/evidence live in ignored `research/`; approved contracts
+  live in `openspec/specs/` and the active change.
 
 ## Project rules
 
@@ -131,13 +76,20 @@ docker compose run --rm api llm-gateway-admin grants show      # every grant and
   new version. Never edit `contract_versions` or `project_keys` by hand.
 - Models and prices change only by editing the catalogue data files in a
   reviewed change. A price change adds a new `effective_from` entry with its
-  `source_url` and never edits an old one. Every model needs a standard
-  price in effect, or start-up fails.
+  `source_url` and never edits an old one. Every paid model needs a standard
+  price in effect, or start-up fails. Zero-fee models explicitly declare that billing
+  policy and still obey rate/concurrency grants. Run `models sync` after schema
+  migration; a registered alias cannot be reassigned, even after retirement.
 - Provider calls follow the failure table in `llm/providers.py`:
   - a confirmed refusal is retryable under the same call ID;
   - a send that may have reached the provider is `execution_unknown` and
     never runs again;
   - provider messages are never logged or returned, only status and code.
+- Provider credentials are registered with protected input per project/provider;
+  never pass them in an inference request, contract, argv value or export. The
+  dedicated `PROVIDER_CREDENTIAL_ENCRYPTION_KEY` is separate from the result key.
+  A global provider key is never an execution fallback. New/current contracts use
+  aliases; upgrade version-1 documents explicitly through the registry.
 - Every OpenAI request sends `store: false`. Never enable provider-side
   storage or conversation state.
 - A new problem code needs a mapping in

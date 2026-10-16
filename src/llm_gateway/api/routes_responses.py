@@ -6,14 +6,14 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import ValidationError
 
 from llm_gateway.api.auth import ProjectIdentity, require_project
-from llm_gateway.api.problems import GatewayError, problem_response
+from llm_gateway.api.problems import GatewayError, document_problems
 from llm_gateway.api.routes_projects import AUTH_RESPONSES
 from llm_gateway.calls.records import AdmissionRefusedError, Allowance
 from llm_gateway.llm.errors import CallRejectedError
 from llm_gateway.llm.request import ResponseRequest
+from llm_gateway.llm.response import CallResultOut
 from llm_gateway.llm.service import CallDeps, run_call
 from llm_gateway.llm.streaming import sse_body, start_stream
 from llm_gateway.money import format_usd
@@ -29,6 +29,8 @@ _ADMISSION_TITLES = {
     "budget_exhausted": "Monthly budget exhausted",
     "idempotency_conflict": "Call ID was used for a different request",
     "call_in_progress": "This call ID is still running",
+    "credential_changed": "Provider credentials changed",
+    "call_configuration_changed": "Effective call configuration changed",
 }
 _RESPONSES: dict[int | str, dict[str, Any]] = {
     **AUTH_RESPONSES,
@@ -67,9 +69,22 @@ def allowance_headers(allowance: Allowance) -> dict[str, str]:
     }
 
 
-@router.post("/responses", responses=_RESPONSES, response_model=None)
+_RESPONSES[409]["description"] += "; credential_changed; call_configuration_changed"
+_RESPONSES[422]["description"] += "; model_task_mismatch"
+_RESPONSES[503]["description"] += (
+    "; provider_credentials_missing; provider_credentials_unreadable; model_registry_unavailable; contract_upgrade_required"
+)
+_RESPONSES[200] = {
+    "description": "A typed result or gateway server-sent events.",
+    "content": {"text/event-stream": {"schema": {"type": "string"}}},
+}
+
+
+@router.post("/responses", responses=document_problems(_RESPONSES), response_model=CallResultOut)
 async def create_response(
-    request: Request, identity: Annotated[ProjectIdentity, Depends(require_project)]
+    request: Request,
+    identity: Annotated[ProjectIdentity, Depends(require_project)],
+    call: ResponseRequest,
 ) -> JSONResponse | StreamingResponse:
     """Run one model call; with `stream: true` the answer arrives as server-sent events.
 
@@ -79,19 +94,6 @@ async def create_response(
     raw = await request.body()
     if len(raw) > deps.settings.request_max_bytes:
         raise GatewayError("request_too_large", status=413, title="Request is too large")
-    try:
-        call = ResponseRequest.model_validate_json(raw)
-    except ValidationError as exc:
-        errors = [
-            {
-                "field": ".".join(str(part) for part in error.get("loc", ())),
-                "code": str(error.get("type", "invalid")),
-            }
-            for error in exc.errors()
-        ]
-        return problem_response(
-            code="request_invalid", status=422, title="Request is invalid", errors=errors
-        )
     try:
         if call.stream:
             plan = await start_stream(

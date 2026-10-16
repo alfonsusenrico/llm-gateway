@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import os
 import uuid
 from collections.abc import AsyncIterator, Iterator
@@ -17,6 +18,7 @@ UNREACHABLE_DATABASE_URL = "postgresql://gateway:unused@127.0.0.1:1/gateway"
 # A fixed 32-byte pepper (base64url) so tests can compute expected hashes.
 TEST_PEPPER = "dGVzdC1wZXBwZXItdGVzdC1wZXBwZXItdGVzdC1wZXBwZXI"
 # A fixed Fernet key for stored results in tests.
+TEST_CREDENTIAL_KEY = base64.urlsafe_b64encode(b"c" * 32).decode()
 TEST_RESULT_KEY = "dGVzdC1yZXN1bHQta2V5LXRlc3QtcmVzdWx0LWtleS0="
 
 
@@ -35,9 +37,12 @@ def make_settings(database_url: str = UNREACHABLE_DATABASE_URL, **overrides: obj
     values: dict[str, object] = {
         "app_env": "development",
         "app_revision": "test-revision",
+        "notifier_telegram_bot_token": None,
+        "notifier_telegram_chat_id": None,
         "database_url": database_url,
         "project_key_pepper": TEST_PEPPER,
         "result_encryption_key": TEST_RESULT_KEY,
+        "provider_credential_encryption_key": TEST_CREDENTIAL_KEY,
     }
     values.update(overrides)
     return Settings.model_validate(values)
@@ -77,6 +82,13 @@ async def migrated_pool(
     """A pool on an empty schema with every packaged migration applied."""
     with psycopg.connect(test_database_url, options=schema_options(isolated_schema)) as connection:
         apply_migrations(connection, discover(MIGRATIONS_DIR))
+        from llm_gateway.catalogue.model import get_catalogue
+
+        for entry in get_catalogue().models.values():
+            connection.execute(
+                "INSERT INTO model_alias_bindings (alias, task, definition_digest) VALUES (%s, %s, %s)",
+                (entry.alias, entry.task, entry.definition_digest),
+            )
     pool: AsyncConnectionPool = AsyncConnectionPool(
         test_database_url,
         kwargs={"options": schema_options(isolated_schema)},
@@ -102,4 +114,11 @@ def migrated_schema_url(test_database_url: str, isolated_schema: str) -> str:
     """A database URL whose search path is a fresh, fully migrated schema."""
     with psycopg.connect(test_database_url, options=schema_options(isolated_schema)) as connection:
         apply_migrations(connection, discover(MIGRATIONS_DIR))
+        from llm_gateway.catalogue.model import get_catalogue
+
+        for entry in get_catalogue().models.values():
+            connection.execute(
+                "INSERT INTO model_alias_bindings (alias, task, definition_digest) VALUES (%s, %s, %s)",
+                (entry.alias, entry.task, entry.definition_digest),
+            )
     return schema_database_url(test_database_url, isolated_schema)

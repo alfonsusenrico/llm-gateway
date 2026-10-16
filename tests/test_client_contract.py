@@ -32,7 +32,7 @@ pytestmark = [pytest.mark.anyio, pytest.mark.db]
 GATEWAY_SOURCE = Path(__file__).parents[1] / "src" / "llm_gateway"
 # Codes the gateway can emit that the client deliberately treats as generic errors.
 GENERIC_CODES = frozenset({"http_error"})
-STUB = {"provider": "stub", "model": "stub-echo"}
+STUB = "stub-echo"
 
 
 class DropFirstResponse(httpx2.AsyncBaseTransport):
@@ -275,8 +275,11 @@ async def test_allocation_catalogue_and_identity(calls: Calls) -> None:
     client = _client(calls)
 
     allocation = await client.allocation()
-    models = await client.catalogue()
+    models = await client.models.list()
     identity = await client.whoami()
+    details = await client.models.get("stub-echo")
+    assert details.request_schema["properties"]["model"]["const"] == "stub-echo"
+    assert await client.models.list(task="embedding") == []
 
     assert (allocation.project_id, allocation.environment) == ("alpha", "development")
     assert [m.model for m in models] == ["gpt-6-luna", "stub-echo"]

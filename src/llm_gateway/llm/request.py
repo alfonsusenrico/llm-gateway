@@ -95,6 +95,8 @@ class Continuation(_Strict):
     type: Literal["continuation"]
     provider: str = Field(min_length=1, max_length=32)
     model: str = Field(min_length=1, max_length=160)
+    model_alias: str = Field(min_length=1, max_length=160)
+    definition_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
     items: list[dict[str, Any]] = Field(min_length=1, max_length=1_000)
 
     @field_validator("items")
@@ -168,11 +170,6 @@ class TextFormat(_Strict):
         return self
 
 
-class ModelRef(_Strict):
-    provider: str = Field(min_length=1, max_length=32)
-    model: str = Field(min_length=1, max_length=160)
-
-
 class StubToolCall(_Strict):
     name: str = Field(pattern=TOOL_NAME_PATTERN)
     # A string is sent as is, so invalid argument JSON can be tested.
@@ -189,7 +186,7 @@ class ResponseRequest(_Strict):
     provider_call_id: str = Field(pattern=CALL_ID_PATTERN)
     operation: str = Field(pattern=OPERATION_PATTERN)
     profile: str | None = Field(default=None, min_length=1, max_length=40)
-    model: ModelRef | None = None
+    model: str | None = Field(default=None, pattern=r"^[a-z][a-z0-9._-]{1,159}$")
     input: str | list[InputItem] = Field(min_length=1)
     instructions: str | None = Field(default=None, max_length=100_000)
     text_format: TextFormat = TextFormat()
@@ -267,8 +264,8 @@ class ResponseRequest(_Strict):
         `stream` is left out: a call ID may be replayed streamed or not.
         """
         canonical = json.dumps(
-            self.model_dump(mode="json", exclude_none=True, by_alias=True, exclude={"stream"}),
+            self.model_dump(mode="json", exclude_unset=True, by_alias=True, exclude={"stream"}),
             sort_keys=True,
             separators=(",", ":"),
         )
-        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        return hashlib.sha256(("2:llm:" + canonical).encode("utf-8")).hexdigest()

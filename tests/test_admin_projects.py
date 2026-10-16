@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from llm_gateway.admin import cli
-from tests.conftest import TEST_PEPPER, TEST_RESULT_KEY
+from tests.conftest import TEST_CREDENTIAL_KEY, TEST_PEPPER, TEST_RESULT_KEY
 
 pytestmark = pytest.mark.db
 KEY = re.compile(r"lgw\.(dev|prod)\.[a-z2-7]{12}\.[A-Za-z0-9_-]{43}")
@@ -20,6 +20,7 @@ def admin(
     monkeypatch.setenv("DATABASE_URL", migrated_schema_url)
     monkeypatch.setenv("PROJECT_KEY_PEPPER", TEST_PEPPER)
     monkeypatch.setenv("RESULT_ENCRYPTION_KEY", TEST_RESULT_KEY)
+    monkeypatch.setenv("PROVIDER_CREDENTIAL_ENCRYPTION_KEY", TEST_CREDENTIAL_KEY)
 
     def run(*argv: str) -> tuple[int, str]:
         status = cli.main(list(argv))
@@ -73,8 +74,7 @@ def test_profiles_and_status(admin) -> None:
     admin("project", "register", "personal_agent", "--display-name", "Agent")
 
     set_status, _ = admin(
-        "project", "set-profile", "personal_agent", "chat", "--provider", "openai",
-        "--model", "gpt-6-luna", "--max-output-tokens", "1200",
+        "project", "set-profile", "personal_agent", "chat", "--model", "openai-gpt-6-luna", "--max-output-tokens", "1200",
     )  # fmt: skip
     disable_status, _ = admin("project", "disable", "personal_agent")
     _, exported = admin("project", "export", "personal_agent")
@@ -83,7 +83,7 @@ def test_profiles_and_status(admin) -> None:
     contract = json.loads(exported)
     assert (set_status, disable_status) == (0, 0)
     assert contract["profiles"] == {
-        "chat": {"provider": "openai", "model": "gpt-6-luna", "max_output_tokens": 1200}
+        "chat": {"model": "openai-gpt-6-luna", "parameters": {"max_output_tokens": 1200}}
     }
     assert contract["status"] == "disabled"
     assert (missing_status, missing.strip()) == (
@@ -160,15 +160,38 @@ def test_profiles_are_checked_against_the_catalogue(admin) -> None:
     admin("project", "register", "personal_agent", "--display-name", "Agent")
 
     temperature_status, temperature = admin(
-        "project", "set-profile", "personal_agent", "chat", "--provider", "openai",
-        "--model", "gpt-6-luna", "--reasoning-effort", "low", "--temperature", "0.7",
+        "project", "set-profile", "personal_agent", "chat", "--model", "openai-gpt-6-luna", "--reasoning-effort", "low", "--temperature", "0.7",
     )  # fmt: skip
     unknown_status, unknown = admin(
-        "project", "set-profile", "personal_agent", "chat", "--provider", "openai",
-        "--model", "gpt-9",
+        "project", "set-profile", "personal_agent", "chat", "--model", "gpt-9",
     )  # fmt: skip
 
     assert temperature_status == 1
-    assert "temperature only with reasoning_effort none" in temperature
+    assert "reasoning_effort: const" in temperature
     assert unknown_status == 1
-    assert "openai/gpt-9 is not in the catalogue" in unknown
+    assert "alias is not registered" in unknown
+
+
+def test_provider_credential_cli_is_write_only_and_excluded_from_exports(
+    admin, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import io
+    import sys
+
+    admin("project", "register", "alpha", "--display-name", "Alpha")
+    _, original = admin("project", "export", "alpha")
+    secret = "synthetic-cli-provider-secret"
+    monkeypatch.setattr(sys, "stdin", io.StringIO(secret + "\n"))
+    status, registered = admin(
+        "project", "credential", "set", "alpha", "--provider", "openai", "--stdin"
+    )
+    assert status == 0
+    _, listed = admin("project", "credential", "list", "alpha")
+    assert json.loads(listed)[0]["configured"] is True
+    _, exported = admin("project", "export", "alpha")
+    assert exported == original
+    status, removed = admin("project", "credential", "remove", "alpha", "--provider", "openai")
+    assert status == 0
+    _, listed_again = admin("project", "credential", "list", "alpha")
+    assert json.loads(listed_again)[0]["configured"] is False
+    assert secret not in registered + listed + exported + removed + listed_again

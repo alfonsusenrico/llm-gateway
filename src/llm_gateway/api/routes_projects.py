@@ -2,24 +2,29 @@
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from llm_gateway.api.auth import ProjectIdentity, require_project
+from llm_gateway.api.problems import document_problems
 from llm_gateway.projects.contract import Environment
 
 router = APIRouter(prefix="/v1/projects", tags=["projects"])
 
-AUTH_RESPONSES: dict[int | str, dict[str, str]] = {
-    401: {
-        "description": "Key missing, malformed, or invalid (`key_missing`, `key_malformed`, `key_invalid`)."
-    },
-    403: {"description": "Project disabled (`project_disabled`)."},
-    429: {"description": "Source throttled after repeated failures (`auth_throttled`)."},
-    503: {"description": "Stored contract invalid (`project_quarantined`)."},
-}
+AUTH_RESPONSES: dict[int | str, dict[str, Any]] = document_problems(
+    {
+        401: {
+            "description": "Key missing, malformed, or invalid (`key_missing`, `key_malformed`, `key_invalid`)."
+        },
+        403: {"description": "Project disabled (`project_disabled`)."},
+        429: {"description": "Source throttled after repeated failures (`auth_throttled`)."},
+        503: {
+            "description": "Stored contract invalid (`project_quarantined`) or needs explicit upgrade (`contract_upgrade_required`)."
+        },
+    }
+)
 
 
 class ProjectSelf(BaseModel):

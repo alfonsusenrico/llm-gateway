@@ -7,6 +7,8 @@ ledger, decides, and records the call. Nothing in it waits on the network.
 from __future__ import annotations
 
 import math
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import UTC, date, datetime
 from typing import LiteralString
 
@@ -42,6 +44,8 @@ _IN_PROGRESS_RETRY_SECONDS = 2
 
 def reservation_micro_usd(catalogue: Catalogue, request: CallRequest, on: date) -> int:
     """The worst-case cost used to gate admission; settlement records the real cost."""
+    if request.billing_kind == "zero":
+        return 0
     price = catalogue.price(request.provider, request.model, request.service_tier, on)
     usage = TokenUsage(
         input_tokens=math.ceil(request.request_bytes / _RESERVATION_BYTES_PER_TOKEN),
@@ -60,16 +64,20 @@ async def admit(
     request: CallRequest,
     *,
     actor: str,
+    connection: AsyncConnection | None = None,
 ) -> Admitted | AlreadyFinished:
     """Admit the call or raise `AdmissionRefusedError`; an ended call ID returns its record."""
     now = datetime.now(UTC)
     reserved = reservation_micro_usd(catalogue, request, now.date())
     global_cap = to_micro_usd(settings.global_monthly_budget_usd)
-    async with pool.connection() as connection, connection.transaction():
+    async with _admission_connection(pool, connection) as connection:
         await connection.execute("SELECT pg_advisory_xact_lock(%s)", (_ADMISSION_LOCK_KEY,))
         existing = await _existing_call(connection, request)
         if existing is not None:
-            if existing.request_fingerprint != request.request_fingerprint:
+            if (
+                existing.request_fingerprint != request.request_fingerprint
+                or existing.task != request.task
+            ):
                 raise AdmissionRefusedError("idempotency_conflict", status=409)
             if existing.state == "admitted":
                 raise AdmissionRefusedError(
@@ -79,13 +87,20 @@ async def admit(
                 )
             if existing.state != "retryable_failure":
                 return AlreadyFinished(existing)
+            if existing.credential_revision != request.credential_revision:
+                raise AdmissionRefusedError("credential_changed", status=409)
+            if (existing.definition_digest, existing.settings_digest) != (
+                request.definition_digest,
+                request.settings_digest,
+            ):
+                raise AdmissionRefusedError("call_configuration_changed", status=409)
         grant = await _grant(connection, request)
         if grant is None:
             raise AdmissionRefusedError(
                 "allocation_pending", status=503, retry_after_seconds=_PENDING_RETRY_SECONDS
             )
         rpm_limit, concurrency_limit, budget, ceiling = grant
-        if reserved > ceiling:
+        if request.billing_kind != "zero" and reserved > ceiling:
             raise AdmissionRefusedError("cost_ceiling_exceeded", status=422)
         in_flight = await _count(
             connection,
@@ -103,12 +118,12 @@ async def admit(
         since = month_start(now)
         spent = await pair_spend(connection, request.project_id, request.environment, since)
         until_next_month = max(1, math.ceil((next_month_start(now) - now).total_seconds()))
-        if spent + reserved > budget:
+        if request.billing_kind != "zero" and spent + reserved > budget:
             raise AdmissionRefusedError(
                 "budget_exhausted", status=429, retry_after_seconds=until_next_month
             )
         everyone = await total_spend(connection, since)
-        if everyone + reserved > global_cap:
+        if request.billing_kind != "zero" and everyone + reserved > global_cap:
             raise_alert_soon(
                 pool,
                 event_type="global_budget_exhausted",
@@ -136,6 +151,30 @@ async def admit(
         ),
     )
     return Admitted(call_key, reserved, allowance)
+
+
+@asynccontextmanager
+async def _admission_connection(
+    pool: AsyncConnectionPool, existing: AsyncConnection | None
+) -> AsyncIterator[AsyncConnection]:
+    if existing is not None:
+        yield existing
+    else:
+        async with pool.connection() as connection, connection.transaction():
+            yield connection
+
+
+async def find_call(
+    pool: AsyncConnectionPool, project_id: str, environment: str, call_id: str
+) -> CallRecord | None:
+    async with pool.connection() as connection:
+        cursor = await connection.execute(
+            "SELECT " + CALL_COLUMNS + " FROM calls "  # noqa: S608  # LiteralString fragments only
+            "WHERE project_id = %s AND environment = %s AND provider_call_id = %s",
+            (project_id, environment, call_id),
+        )
+        row = await cursor.fetchone()
+        return CallRecord(*row) if row is not None else None
 
 
 def _window_reset(oldest: datetime | None, now: datetime) -> int:
@@ -213,9 +252,10 @@ async def _record_admission(
             """
             INSERT INTO calls (project_id, environment, provider_call_id, request_fingerprint,
                 operation, provider, model, service_tier_requested, state, reserved_micro_usd,
-                lease_expires_at)
+                lease_expires_at, request_schema_version, task, model_alias, definition_digest,
+                settings_digest, credential_revision, billing_kind)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'admitted', %s,
-                now() + make_interval(secs => %s))
+                now() + make_interval(secs => %s), %s, %s, %s, %s, %s, %s, %s)
             RETURNING call_key
             """,
             (
@@ -229,6 +269,13 @@ async def _record_admission(
                 request.service_tier,
                 reserved,
                 lease_seconds,
+                2 if request.model_alias is not None else 1,
+                request.task,
+                request.model_alias,
+                request.definition_digest,
+                request.settings_digest,
+                request.credential_revision,
+                request.billing_kind,
             ),
         )
         row = await cursor.fetchone()

@@ -3,19 +3,19 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
 import anyio
 import pytest
 from psycopg_pool import AsyncConnectionPool
+from pydantic import SecretStr
 
 from llm_gateway.allocation.store import recompute
 from llm_gateway.catalogue.model import get_catalogue
 from llm_gateway.catalogue.pricing import TokenUsage
 from llm_gateway.llm.providers import (
-    ProviderAdapter,
     ProviderFailure,
     ProviderSuccess,
     StreamStarted,
@@ -25,6 +25,8 @@ from llm_gateway.llm.results import ResultStore, delete_expired_results
 from llm_gateway.llm.service import CallDeps
 from llm_gateway.llm.stub_adapter import StubAdapter
 from llm_gateway.notifier.events import wait_for_background_alerts
+from llm_gateway.projects.contract import ContractV2
+from llm_gateway.projects.credentials import CredentialStore
 from tests.conftest import TEST_RESULT_KEY
 from tests.test_auth_api import Gateway
 
@@ -46,7 +48,7 @@ class FakeOpenAI:
             await anyio.sleep(self.delay)
         return self.result
 
-    async def execute_stream(self, resolved: Any, request: Any) -> AsyncIterator[Any]:
+    async def execute_stream(self, resolved: Any, request: Any) -> AsyncGenerator[Any]:
         self.calls += 1
         if isinstance(self.result, ProviderFailure):
             yield self.result
@@ -82,7 +84,13 @@ class Calls:
     async def setup(self, **settings: Any) -> None:
         self.keys = await self.gateway.register("alpha")
         await recompute(self.gateway.pool, self.gateway.settings)
-        adapters: dict[str, ProviderAdapter] = {"stub": StubAdapter(), "openai": self.openai}
+        adapters = {
+            "stub": lambda _credential: StubAdapter(),
+            "openai-responses": lambda _credential: self.openai,
+        }
+        await CredentialStore(
+            self.gateway.pool, self.gateway.settings.provider_credential_encryption_key
+        ).set("alpha", "openai", SecretStr("synthetic-provider-key"), actor="test")
         deps = CallDeps(
             pool=self.gateway.pool,
             settings=self.gateway.settings.model_copy(update=settings),
@@ -97,7 +105,7 @@ class Calls:
         payload: dict[str, Any] = {
             "provider_call_id": "call-1",
             "operation": "summarise",
-            "model": {"provider": "stub", "model": "stub-echo"},
+            "model": "stub-echo",
             "input": SECRET_PROMPT,
         }
         payload.update(body)
@@ -192,12 +200,8 @@ async def test_incomplete_scenario_completes_with_its_reason(calls: Calls) -> No
 
 async def test_resubmitted_call_is_replayed_without_a_second_charge(calls: Calls) -> None:
     calls.openai.result = _luna_success()
-    first = await calls.post(
-        "production", model={"provider": "openai", "model": "gpt-6-luna"}, max_output_tokens=600
-    )
-    again = await calls.post(
-        "production", model={"provider": "openai", "model": "gpt-6-luna"}, max_output_tokens=600
-    )
+    first = await calls.post("production", model="openai-gpt-6-luna", max_output_tokens=600)
+    again = await calls.post("production", model="openai-gpt-6-luna", max_output_tokens=600)
 
     assert first.json()["cost_usd"] == "0.000358"
     assert again.status_code == 200
@@ -210,9 +214,9 @@ async def test_resubmitted_call_is_replayed_without_a_second_charge(calls: Calls
 
 async def test_retryable_failure_is_executed_again_on_resubmission(calls: Calls) -> None:
     calls.openai.result = ProviderFailure("temporary_overload", "server_is_overloaded", 3)
-    first = await calls.post("production", model={"provider": "openai", "model": "gpt-6-luna"})
+    first = await calls.post("production", model="openai-gpt-6-luna")
     calls.openai.result = _luna_success()
-    second = await calls.post("production", model={"provider": "openai", "model": "gpt-6-luna"})
+    second = await calls.post("production", model="openai-gpt-6-luna")
 
     assert (first.status_code, first.headers["Retry-After"]) == (503, "3")
     assert second.status_code == 200
@@ -221,8 +225,8 @@ async def test_retryable_failure_is_executed_again_on_resubmission(calls: Calls)
 
 async def test_unknown_execution_is_never_run_again(calls: Calls) -> None:
     calls.openai.result = ProviderFailure("execution_unknown", "ReadTimeout")
-    first = await calls.post("production", model={"provider": "openai", "model": "gpt-6-luna"})
-    again = await calls.post("production", model={"provider": "openai", "model": "gpt-6-luna"})
+    first = await calls.post("production", model="openai-gpt-6-luna")
+    again = await calls.post("production", model="openai-gpt-6-luna")
 
     assert first.json()["code"] == again.json()["code"] == "execution_unknown"
     assert calls.openai.calls == 1
@@ -280,9 +284,9 @@ async def test_production_key_cannot_use_the_stub(calls: Calls) -> None:
 
 
 async def test_missing_provider_is_not_configured(calls: Calls) -> None:
-    del calls.gateway.app.state.call_deps.adapters["openai"]
+    del calls.gateway.app.state.call_deps.adapters["openai-responses"]
 
-    response = await calls.post("production", model={"provider": "openai", "model": "gpt-6-luna"})
+    response = await calls.post("production", model="openai-gpt-6-luna")
 
     assert (response.status_code, response.json()["code"]) == (503, "provider_not_configured")
 
@@ -317,7 +321,7 @@ async def test_admission_refusals_reach_the_client(calls: Calls) -> None:
 async def test_account_problems_alert_the_owner(calls: Calls) -> None:
     calls.openai.result = ProviderFailure("account_blocked", "credit_balance_exhausted")
 
-    response = await calls.post("production", model={"provider": "openai", "model": "gpt-6-luna"})
+    response = await calls.post("production", model="openai-gpt-6-luna")
     await wait_for_background_alerts()
 
     assert (response.status_code, response.json()["code"]) == (503, "provider_account_blocked")
@@ -331,18 +335,18 @@ async def test_a_disconnected_client_still_settles_the_call(calls: Calls) -> Non
     from llm_gateway.llm.service import run_call
 
     slow = FakeOpenAI(_luna_success(), delay=0.3)
-    only_slow: dict[str, ProviderAdapter] = {"openai": slow}
+    only_slow = {"openai-responses": lambda _: slow}
     deps = dataclasses.replace(calls.gateway.app.state.call_deps, adapters=only_slow)
     request = ResponseRequest.model_validate(
         {
             "provider_call_id": "dropped",
             "operation": "summarise",
-            "model": {"provider": "openai", "model": "gpt-6-luna"},
+            "model": "openai-gpt-6-luna",
             "input": "Hello",
         }
     )
     identity = await calls.gateway.authenticator.directory.load("alpha")
-    assert identity is not None and identity.contract is not None
+    assert identity is not None and isinstance(identity.contract, ContractV2)
     task = asyncio.get_running_loop().create_task(
         run_call(
             deps,

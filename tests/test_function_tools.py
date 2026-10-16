@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
@@ -18,6 +17,7 @@ from llm_gateway.llm.openai_adapter import build_request
 from llm_gateway.llm.providers import FunctionCall, ProviderSuccess, StreamStarted
 from llm_gateway.llm.request import ResponseRequest
 from llm_gateway.llm.stub_adapter import StubAdapter
+from tests.test_catalogue import _base, _files
 from tests.test_llm_request import _resolve
 from tests.test_openai_adapter import RESOLVED, _adapter, _success_body
 from tests.test_openai_adapter import _request as _luna_request
@@ -50,6 +50,8 @@ LUNA_CONTINUATION = {
     "type": "continuation",
     "provider": "openai",
     "model": "gpt-6-luna",
+    "model_alias": RESOLVED.entry.alias,
+    "definition_digest": RESOLVED.entry.definition_digest,
     "items": [REASONING, CALL_ITEM],
 }
 
@@ -124,10 +126,9 @@ def test_tools_change_the_fingerprint() -> None:
 
 
 def test_model_without_function_tools_refuses_tools(tmp_path: Path) -> None:
-    models = json.loads((DATA_DIR / "models.json").read_text())
+    models = _base("models.json")
     models["models"][0]["function_tools"] = False
-    (tmp_path / "models.json").write_text(json.dumps(models))
-    catalogue = load_catalogue(tmp_path / "models.json", DATA_DIR / "prices.json")
+    catalogue = load_catalogue(*_files(tmp_path, models=models))
 
     with pytest.raises(CallRejectedError) as raised:
         _resolve(_with_tools(), catalogue=catalogue)
@@ -151,7 +152,7 @@ def test_continuation_from_another_model_is_refused() -> None:
 
 
 def test_packaged_models_support_function_tools() -> None:
-    catalogue = load_catalogue(DATA_DIR / "models.json", DATA_DIR / "prices.json")
+    catalogue = load_catalogue(DATA_DIR / "models", DATA_DIR / "prices.json")
 
     assert all(entry.function_tools for entry in catalogue.models.values())
 
@@ -237,7 +238,7 @@ def _stub_request(**overrides: Any) -> ResponseRequest:
     data: dict[str, Any] = {
         "provider_call_id": "s",
         "operation": "demo",
-        "model": {"provider": "stub", "model": "stub-echo"},
+        "model": "stub-echo",
         "input": "What is on today?",
         "tools": [EVENTS_TOOL],
     }
@@ -255,6 +256,7 @@ async def test_stub_scripts_calls_and_answers_function_outputs() -> None:
         _stub_request(
             input=[
                 {"type": "continuation", "provider": "stub", "model": "stub-echo",
+                 "model_alias": "stub-echo", "definition_digest": RESOLVED.entry.definition_digest,
                  "items": list(first.output_items)},
                 {"type": "function_call_output", "call_id": "stub_call_1", "output": "standup"},
             ]
@@ -364,7 +366,7 @@ async def test_replay_returns_the_same_continuation(calls: Calls) -> None:
 async def test_mismatched_continuation_is_refused_before_admission(calls: Calls) -> None:
     response = await calls.post(
         "production",
-        model={"provider": "openai", "model": "gpt-6-luna"},
+        model="openai-gpt-6-luna",
         tools=[EVENTS_TOOL],
         input=[
             {**LUNA_CONTINUATION, "provider": "stub", "model": "stub-echo"},
@@ -394,7 +396,13 @@ async def test_streamed_tool_call(calls: Calls) -> None:
 @pytest.mark.db
 async def test_catalogue_shows_function_tool_support(calls: Calls) -> None:
     response = await calls.gateway.client.get(
-        "/v1/catalogue", headers={"Authorization": f"Bearer {calls.keys['production'].raw}"}
+        "/v1/models", headers={"Authorization": f"Bearer {calls.keys['production'].raw}"}
     )
 
-    assert response.json()["models"][0]["function_tools"] is True
+    assert response.json()["models"][0]["capabilities"]["function_tools"] is True
+
+
+def test_continuation_from_another_alias_of_same_upstream_is_refused() -> None:
+    request = _with_tools(input=[{**LUNA_CONTINUATION, "model_alias": "another-alias"}])
+    with pytest.raises(CallRejectedError, match="continuation_mismatch"):
+        _resolve(request)

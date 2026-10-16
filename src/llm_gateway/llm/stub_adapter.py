@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from typing import Any
 
 from llm_gateway.catalogue.pricing import TokenUsage
@@ -133,7 +133,7 @@ class StubAdapter:
 
     async def execute_stream(
         self, resolved: ResolvedCall, request: ResponseRequest
-    ) -> AsyncIterator[StreamEvent]:
+    ) -> AsyncGenerator[StreamEvent]:
         """The same answers word by word; `fail_mid_stream` breaks after two words."""
         result = await self.execute(resolved, request)
         if isinstance(result, ProviderFailure):

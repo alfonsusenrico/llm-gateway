@@ -24,6 +24,8 @@ RESULT = {
     "status": "completed",
     "provider": "stub",
     "model": "stub-echo",
+    "model_alias": "stub-echo",
+    "definition_digest": "a" * 64,
     "output_text": "stub: hi there",
     "usage": {"input_tokens": 3, "output_tokens": 3},
     "cost_usd": "0.00",

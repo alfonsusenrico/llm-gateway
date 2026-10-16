@@ -102,3 +102,39 @@ async def test_grants_and_weight_through_the_menu(migrated_pool: AsyncConnection
     assert "Enter a whole number of at least 1." in script.text
     assert "Weight of alpha is now 2." in script.text
     assert "alpha/production" in script.text
+
+
+async def test_credential_and_model_management_through_menu(
+    migrated_pool: AsyncConnectionPool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from pydantic import SecretStr
+
+    from llm_gateway.admin import credential_commands
+
+    monkeypatch.setattr(
+        credential_commands, "read_credential", lambda: SecretStr("synthetic-menu-secret")
+    )
+    script = Script(
+        "3",
+        "alpha",
+        "Alpha",
+        "15",
+        "alpha",
+        "openai",
+        "17",
+        "alpha",
+        "16",
+        "alpha",
+        "openai",
+        "18",
+        "alpha",
+        "19",
+        "0",
+    )
+    await _run(migrated_pool, script)
+    assert "Credential registered for alpha/openai" in script.text
+    assert '"configured": true' in script.text
+    assert "Credential removed for alpha/openai" in script.text
+    assert "Contracts upgraded: 0." in script.text
+    assert "Model aliases registered: 0." in script.text
+    assert "synthetic-menu-secret" not in script.text

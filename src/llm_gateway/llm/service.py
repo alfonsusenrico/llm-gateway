@@ -6,15 +6,17 @@ import asyncio
 import json
 import logging
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
 from psycopg_pool import AsyncConnectionPool
 
-from llm_gateway.calls.admission import admit
+from llm_gateway.calls.admission import admit, find_call
 from llm_gateway.calls.records import Admitted, Allowance, AlreadyFinished, CallRecord, CallRequest
 from llm_gateway.calls.settlement import Outcome, settle
 from llm_gateway.catalogue.model import Catalogue
+from llm_gateway.catalogue.store import registered
 from llm_gateway.llm.errors import PROBLEM_STATUS, CallRejectedError
 from llm_gateway.llm.providers import (
     FunctionCall,
@@ -28,7 +30,8 @@ from llm_gateway.llm.resolve import ResolvedCall, resolve
 from llm_gateway.llm.results import ResultStore
 from llm_gateway.money import format_usd
 from llm_gateway.notifier.events import dedupe_key, raise_alert
-from llm_gateway.projects.contract import ContractV1
+from llm_gateway.projects.contract import ContractV2, parse_contract
+from llm_gateway.projects.credentials import Credential, CredentialError, CredentialStore
 from llm_gateway.settings import Settings
 
 logger = logging.getLogger(__name__)
@@ -42,7 +45,7 @@ class CallDeps:
     settings: Settings
     catalogue: Catalogue
     results: ResultStore
-    adapters: dict[str, ProviderAdapter]
+    adapters: dict[str, Callable[[Credential | None], ProviderAdapter]]
     actor: str
 
 
@@ -65,40 +68,100 @@ async def prepare_call(
     *,
     project_id: str,
     environment: str,
-    contract: ContractV1,
+    contract: ContractV2,
     request: ResponseRequest,
     request_bytes: int,
 ) -> PreparedCall | CallRecord:
     """Resolve and admit, or return the record of a call ID that already ended."""
-    resolved = resolve(
-        request,
-        project_id=project_id,
-        environment=environment,
-        contract=contract,
-        catalogue=deps.catalogue,
-        default_max_output_tokens=deps.settings.default_max_output_tokens,
-    )
-    adapter = deps.adapters.get(resolved.provider)
-    if adapter is None:
-        raise CallRejectedError("provider_not_configured")
-    admission = await admit(
-        deps.pool,
-        deps.settings,
-        deps.catalogue,
-        CallRequest(
-            project_id=project_id,
-            environment=environment,
-            provider_call_id=request.provider_call_id,
-            request_fingerprint=request.fingerprint(),
-            operation=request.operation,
-            provider=resolved.provider,
-            model=resolved.model,
-            service_tier="standard",
-            request_bytes=request_bytes,
-            max_output_tokens=resolved.max_output_tokens,
-        ),
-        actor=deps.actor,
-    )
+    previous = await find_call(deps.pool, project_id, environment, request.provider_call_id)
+    if previous is not None:
+        if previous.request_fingerprint != request.fingerprint() or previous.task != "llm":
+            raise CallRejectedError("idempotency_conflict")
+        if previous.state not in {"admitted", "retryable_failure"}:
+            return previous
+    credential = None
+    try:
+        async with deps.pool.connection() as connection, connection.transaction():
+            cursor = await connection.execute(
+                "SELECT current_version FROM projects WHERE project_id = %s FOR UPDATE",
+                (project_id,),
+            )
+            project = await cursor.fetchone()
+            if project is None:
+                raise CallRejectedError("project_quarantined")
+            # A separate statement sees the version committed by a writer we waited for.
+            # A join under the lock's older snapshot can miss that newly inserted version.
+            cursor = await connection.execute(
+                "SELECT contract FROM contract_versions WHERE project_id = %s AND version = %s",
+                (project_id, project[0]),
+            )
+            row = await cursor.fetchone()
+            if row is None:
+                raise CallRejectedError("project_quarantined")
+            current = parse_contract(row[0])
+            if current.status != "active":
+                raise CallRejectedError("project_disabled")
+            resolved = resolve(
+                request,
+                project_id=project_id,
+                environment=environment,
+                contract=current,
+                catalogue=deps.catalogue,
+                default_max_output_tokens=deps.settings.default_max_output_tokens,
+            )
+            if not await registered(deps.pool, resolved.entry, connection):
+                raise CallRejectedError("model_registry_unavailable")
+            factory = deps.adapters.get(resolved.entry.adapter)
+            if factory is None:
+                raise CallRejectedError("provider_not_configured")
+            if resolved.entry.billing != "zero":
+                store = CredentialStore(deps.pool, deps.settings.provider_credential_encryption_key)
+                try:
+                    credential = await store.capture(connection, project_id, resolved.provider)
+                except CredentialError as exc:
+                    if (
+                        previous is not None
+                        and previous.state == "retryable_failure"
+                        and exc.code == "provider_credentials_missing"
+                    ):
+                        raise CallRejectedError("credential_changed") from None
+                    raise
+            adapter = factory(credential)
+            admission = await admit(
+                deps.pool,
+                deps.settings,
+                deps.catalogue,
+                CallRequest(
+                    project_id=project_id,
+                    environment=environment,
+                    provider_call_id=request.provider_call_id,
+                    request_fingerprint=request.fingerprint(),
+                    operation=request.operation,
+                    provider=resolved.provider,
+                    model=resolved.model,
+                    service_tier="standard",
+                    request_bytes=request_bytes,
+                    max_output_tokens=resolved.max_output_tokens,
+                    model_alias=resolved.entry.alias,
+                    definition_digest=resolved.entry.definition_digest,
+                    settings_digest=resolved.settings_digest,
+                    credential_revision=credential.revision if credential else None,
+                    billing_kind=resolved.entry.billing,
+                ),
+                actor=deps.actor,
+                connection=connection,
+            )
+    except CredentialError as exc:
+        if exc.code == "provider_credentials_unreadable":
+            await raise_alert(
+                deps.pool,
+                event_type=exc.code,
+                severity="error",
+                summary=f"Provider credentials are unreadable for project {project_id}.",
+                key=dedupe_key(exc.code, project_id),
+                dedupe_window_seconds=deps.settings.notifier_dedupe_window_seconds,
+            )
+        raise CallRejectedError(exc.code) from None
     if isinstance(admission, AlreadyFinished):
         return admission.call
     return PreparedCall(resolved, adapter, admission, f"{project_id}/{environment}")
@@ -117,7 +180,7 @@ async def run_call(
     *,
     project_id: str,
     environment: str,
-    contract: ContractV1,
+    contract: ContractV2,
     request: ResponseRequest,
     request_bytes: int,
 ) -> CallResponse:
@@ -198,7 +261,7 @@ async def finish_call(
                     f"{resolved.provider} refused calls for an account reason "
                     f"({result.provider_code or result.category}); calls fail until it is fixed."
                 ),
-                key=dedupe_key("provider_account_blocked", resolved.provider),
+                key=dedupe_key("provider_account_blocked", prepared.pair, resolved.provider),
                 dedupe_window_seconds=deps.settings.notifier_dedupe_window_seconds,
             )
         detail = f"Provider code: {result.provider_code}." if result.provider_code else None
@@ -276,6 +339,8 @@ def _continuation(resolved: ResolvedCall, result: ProviderSuccess) -> dict[str, 
     return {
         "provider": resolved.provider,
         "model": resolved.model,
+        "model_alias": resolved.entry.alias,
+        "definition_digest": resolved.entry.definition_digest,
         "items": list(result.output_items),
     }
 
@@ -290,6 +355,8 @@ def _body(
         "status": result.status,
         "provider": resolved.provider,
         "model": resolved.model,
+        "model_alias": resolved.entry.alias,
+        "definition_digest": resolved.entry.definition_digest,
         "service_tier": result.service_tier,
         "output_text": result.output_text,
         "output_json": output_json,

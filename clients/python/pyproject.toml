@@ -1,6 +1,6 @@
 [project]
 name = "llm-gateway-client"
-version = "0.3.0"
+version = "0.4.0"
 description = "Typed Python client for LLM Gateway: safe retries, typed errors, grant-sized concurrency."
 readme = "README.md"
 license = "MIT"

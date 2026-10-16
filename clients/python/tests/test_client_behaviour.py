@@ -27,6 +27,8 @@ OK_BODY = {
     "status": "completed",
     "provider": "stub",
     "model": "stub-echo",
+    "model_alias": "stub-echo",
+    "definition_digest": "a" * 64,
     "output_text": "hi",
     "usage": {"input_tokens": 3, "output_tokens": 1},
     "cost_usd": "0.00",
@@ -224,3 +226,61 @@ def test_sync_client_follows_the_same_rules() -> None:
 
     assert result.output_text == "hi"
     assert len(script.bodies) == 2 and len(sleeps) == 1
+
+
+@pytest.mark.parametrize(
+    "status,code",
+    [
+        (503, "provider_credentials_missing"),
+        (503, "provider_credentials_unreadable"),
+        (503, "contract_upgrade_required"),
+        (503, "model_registry_unavailable"),
+        (409, "credential_changed"),
+        (409, "call_configuration_changed"),
+    ],
+)
+async def test_configuration_failures_never_retry(status: int, code: str) -> None:
+    script = Script(problem(status, code), ok())
+    sleeps: list[float] = []
+    gateway = client(script, sleeps)
+    with pytest.raises(GatewayError) as raised:
+        await call(gateway)
+    assert raised.value.code == code
+    assert sleeps == [] and len(script.bodies) == 1
+
+
+def test_sync_model_discovery_uses_typed_metadata_and_task_query() -> None:
+    summary = dict(
+        alias="stub-echo",
+        task="llm",
+        provider="stub",
+        model="stub-echo",
+        definition_digest="a" * 64,
+        execution="stub",
+        billing="zero",
+        limits={},
+        capabilities={},
+        prices={},
+        availability={"configured": True},
+    )
+    paths = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        paths.append(
+            request.url.path + ("?" + request.url.query.decode() if request.url.query else "")
+        )
+        return httpx2.Response(
+            200,
+            json={"models": [summary]}
+            if request.url.path == "/v1/models"
+            else summary | {"request_schema": {"type": "object"}},
+        )
+
+    with SyncGatewayClient(
+        "http://gateway",
+        "synthetic-access-key",
+        http_client=httpx2.Client(transport=httpx2.MockTransport(handler)),
+    ) as gateway:
+        assert gateway.models.list(task="llm")[0].alias == "stub-echo"
+        assert gateway.models.get("stub-echo").request_schema == {"type": "object"}
+    assert paths == ["/v1/models?task=llm", "/v1/models/stub-echo"]

@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal, LiteralString
+from uuid import UUID
 
 CallState = Literal["admitted", "completed", "failed", "retryable_failure", "execution_unknown"]
 FINISHED_STATES: frozenset[CallState] = frozenset(
@@ -63,12 +64,21 @@ class CallRecord:
     failure_code: str | None
     admitted_at: datetime
     finished_at: datetime | None
+    request_schema_version: int = 1
+    task: str = "llm"
+    model_alias: str | None = None
+    definition_digest: str | None = None
+    settings_digest: str | None = None
+    credential_revision: UUID | None = None
+    billing_kind: str | None = None
 
 
 CALL_COLUMNS: LiteralString = (
     "call_key, project_id, environment, provider_call_id, request_fingerprint, operation, "
     "provider, model, service_tier_requested, service_tier_used, state, reserved_micro_usd, "
-    "cost_micro_usd, charged_micro_usd, failure_code, admitted_at, finished_at"
+    "cost_micro_usd, charged_micro_usd, failure_code, admitted_at, finished_at, "
+    "request_schema_version, task, model_alias, definition_digest, settings_digest, "
+    "credential_revision, billing_kind"
 )
 
 
@@ -98,6 +108,12 @@ class CallRequest:
     service_tier: Literal["standard", "flex"]
     request_bytes: int
     max_output_tokens: int
+    model_alias: str | None = None
+    definition_digest: str | None = None
+    settings_digest: str | None = None
+    credential_revision: UUID | None = None
+    billing_kind: str = "token"
+    task: str = "llm"
 
 
 @dataclass(frozen=True, slots=True)

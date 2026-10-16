@@ -15,7 +15,7 @@ from llm_gateway.llm.request import ResponseRequest
 from llm_gateway.llm.resolve import ResolvedCall
 
 pytestmark = pytest.mark.anyio
-LUNA = get_catalogue().model("openai", "gpt-6-luna")
+LUNA = get_catalogue().model("openai-gpt-6-luna")
 assert LUNA is not None
 RESOLVED = ResolvedCall(
     entry=LUNA,
@@ -31,7 +31,7 @@ def _request(**overrides: Any) -> ResponseRequest:
     data: dict[str, Any] = {
         "provider_call_id": "call-1",
         "operation": "summarise",
-        "model": {"provider": "openai", "model": "gpt-6-luna"},
+        "model": "openai-gpt-6-luna",
         "input": SECRET_PROMPT,
     }
     data.update(overrides)

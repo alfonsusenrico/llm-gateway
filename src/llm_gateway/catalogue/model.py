@@ -6,6 +6,7 @@ never rewritten. An unknown price is reported as unknown, never as zero.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import date
 from decimal import Decimal
@@ -15,10 +16,13 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
+from llm_gateway.catalogue.adapters import ADAPTERS, Task
+
 DATA_DIR = Path(__file__).parent
 Tier = Literal["standard", "flex"]
 InputType = Literal["text", "image", "file"]
 TemperatureRule = Literal["always", "never", "only_with_effort_none"]
+ALIAS_PATTERN = r"^[a-z][a-z0-9._-]{1,159}$"
 NonNegativeUsd = Annotated[Decimal, Field(ge=0, le=1000)]
 
 
@@ -31,7 +35,14 @@ class _Strict(BaseModel):
 
 
 class ModelEntry(_Strict):
-    provider: Literal["openai", "stub"]
+    schema_version: Literal[1] = 1
+    alias: str = Field(pattern=ALIAS_PATTERN)
+    task: Task = "llm"
+    adapter: str
+    deployment: str = Field(pattern=r"^[a-z][a-z0-9_-]{1,63}$")
+    execution: Literal["remote", "local", "stub"]
+    billing: Literal["token", "zero"]
+    provider: str = Field(pattern=r"^[a-z][a-z0-9_-]{1,31}$")
     model: str = Field(min_length=1, max_length=160)
     context_window_tokens: int = Field(ge=1)
     max_output_tokens: int = Field(ge=1)
@@ -42,6 +53,10 @@ class ModelEntry(_Strict):
     service_tiers: tuple[Tier, ...] = Field(min_length=1)
     function_tools: bool = False
     development_only: bool
+    streaming: bool = True
+    structured_output: bool = True
+    prompt_cache: bool = True
+    documentation: tuple[str, ...] = ()
 
     @model_validator(mode="after")
     def _default_effort_is_allowed(self) -> ModelEntry:
@@ -50,7 +65,36 @@ class ModelEntry(_Strict):
             and self.default_reasoning_effort not in self.reasoning_efforts
         ):
             raise ValueError("default_reasoning_effort must be one of reasoning_efforts")
+        adapter = ADAPTERS.get(self.adapter)
+        if adapter is None:
+            raise ValueError("adapter is not registered")
+        if (self.task, self.provider, self.execution) != (
+            adapter.task,
+            adapter.provider,
+            adapter.execution,
+        ):
+            raise ValueError("adapter does not support the declared execution identity")
+        for name, enabled, supported in (
+            ("reasoning_efforts", bool(self.reasoning_efforts), adapter.reasoning),
+            ("function_tools", self.function_tools, adapter.tools),
+            ("streaming", self.streaming, adapter.streaming),
+            ("structured_output", self.structured_output, adapter.structured_output),
+            ("prompt_cache", self.prompt_cache, adapter.prompt_cache),
+        ):
+            if enabled and not supported:
+                raise ValueError(f"{name} is not supported by the adapter")
+        if (self.billing == "zero") != (self.execution in {"local", "stub"}):
+            raise ValueError("local/stub execution must explicitly declare zero provider fee")
         return self
+
+    @property
+    def definition_digest(self) -> str:
+        value = json.dumps(
+            self.model_dump(mode="json", exclude={"documentation"}),
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        return hashlib.sha256(value.encode()).hexdigest()
 
     @property
     def key(self) -> tuple[str, str]:
@@ -80,19 +124,15 @@ class PriceEntry(_Strict):
     source_url: str = Field(min_length=1)
 
 
-class _ModelsFile(_Strict):
-    models: tuple[ModelEntry, ...]
-
-
 class _PricesFile(_Strict):
     prices: tuple[PriceEntry, ...]
 
 
 class Catalogue:
     def __init__(self, models: tuple[ModelEntry, ...], prices: tuple[PriceEntry, ...]) -> None:
-        self.models = {entry.key: entry for entry in models}
+        self.models = {entry.alias: entry for entry in models}
         if len(self.models) != len(models):
-            raise CatalogueError("Two catalogue entries share a provider and model.")
+            raise CatalogueError("Two catalogue entries share an alias.")
         self._prices = sorted(prices, key=lambda entry: entry.effective_from)
         self._check_prices()
 
@@ -107,13 +147,19 @@ class Catalogue:
                 )
             seen.add(key)
         for entry in self.models.values():
-            if self.price(entry.provider, entry.model, "standard", date.today()) is None:
+            if (
+                entry.billing == "token"
+                and self.price(entry.provider, entry.model, "standard", date.today()) is None
+            ):
                 raise CatalogueError(
                     f"Model {entry.provider}/{entry.model} has no standard price in effect."
                 )
 
-    def model(self, provider: str, model: str) -> ModelEntry | None:
-        return self.models.get((provider, model))
+    def model(self, alias: str) -> ModelEntry | None:
+        return self.models.get(alias)
+
+    def aliases_for(self, provider: str, model: str) -> list[str]:
+        return [entry.alias for entry in self.models.values() if entry.key == (provider, model)]
 
     def price(self, provider: str, model: str, tier: str, on: date) -> PriceEntry | None:
         """The latest entry that started on or before `on`, or None when unpriced."""
@@ -143,14 +189,24 @@ def catalogue_tier(provider: str, reported: str) -> str:
 
 def load_catalogue(models_path: Path, prices_path: Path) -> Catalogue:
     try:
-        models = _ModelsFile.model_validate(json.loads(models_path.read_text(encoding="utf-8")))
+        models = tuple(
+            ModelEntry.model_validate(json.loads(path.read_text(encoding="utf-8")))
+            for path in sorted(models_path.glob("*.json"))
+        )
+        if not models:
+            raise CatalogueError("No model definitions found.")
         prices = _PricesFile.model_validate(json.loads(prices_path.read_text(encoding="utf-8")))
-    except (OSError, ValueError, ValidationError) as exc:
-        raise CatalogueError(f"Catalogue data is invalid: {exc}") from None
-    return Catalogue(models.models, prices.prices)
+    except ValidationError as exc:
+        fields = sorted(
+            {".".join(str(part) for part in error["loc"]) or "definition" for error in exc.errors()}
+        )
+        raise CatalogueError(f"Catalogue fields are invalid: {', '.join(fields)}") from None
+    except (OSError, ValueError):
+        raise CatalogueError("Catalogue data is invalid.") from None
+    return Catalogue(models, prices.prices)
 
 
 @lru_cache(maxsize=1)
 def get_catalogue() -> Catalogue:
     """The packaged catalogue, loaded once per process."""
-    return load_catalogue(DATA_DIR / "models.json", DATA_DIR / "prices.json")
+    return load_catalogue(DATA_DIR / "models", DATA_DIR / "prices.json")

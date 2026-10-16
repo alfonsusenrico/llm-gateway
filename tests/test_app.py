@@ -115,5 +115,5 @@ def test_readiness_succeeds_with_a_database(test_database_url: str) -> None:
     assert response.json() == {
         "status": "ready",
         "revision": "test-revision",
-        "providers": {"openai": "not_configured"},
+        "providers": {"openai": "adapter_available"},
     }

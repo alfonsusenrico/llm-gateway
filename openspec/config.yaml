@@ -1,11 +1,11 @@
 schema: spec-driven
 
 context: |
-  Project: LLM Gateway - the owner's personal gateway that every AI project calls instead of a provider: project contracts and keys, request-to-grant allocation, provider execution with a failure-certainty policy, a usage and cost ledger under a hard monthly cap, and an owner notifier.
-  Capabilities: database, api-consumers, llm, personal-data, background-jobs (deployed is added in the deployment phase).
+  Project: LLM Gateway - the owner's personal AI inference gateway with separate LLM, embedding and OCR APIs: project contracts and keys, request-to-grant allocation, provider execution with a failure-certainty policy, a usage and cost ledger under a hard paid-call monthly cap, and an owner notifier.
+  Capabilities: database, api-consumers, llm, personal-data, background-jobs, money (deployed is added in the deployment phase).
   Stack: Python 3.13 FastAPI (uv, ruff, Pyright, pytest), PostgreSQL 16 with hand-written SQL migrations (psycopg 3), OpenAI SDK adapter, Docker Compose.
   Sources of truth: approved specs; the owner's local phased plan (research/, not published); official provider API and pricing documentation; owner confirmations.
-  Boundaries: owns provider keys and execution, contracts, grants, failure classification, pricing, the ledger, and alerts; projects own prompts, the meaning of outputs, their tools, memory, jobs, and UI. No browser login or proxy.
+  Boundaries: owns encrypted per-project provider credentials, registered model aliases, supported-field discovery/validation and local or paid inference execution, contracts, grants, failure classification, pricing, the ledger, and alerts; projects own prompts, the meaning of outputs, their tools, memory, embedding/vector storage and search, document interpretation, jobs, and UI. No browser login or proxy.
   LLM boundary: the gateway executes calls and parses provider formats; it never logs prompts or output and never infers a model.
 
 rules:
@@ -22,4 +22,4 @@ rules:
     - Group tasks in phases; end each phase with an "Expected Result" line.
     - Every task names the evidence that proves it (command, test, HTTP check).
     - Mark tasks that need a paid provider call as owner-authorised.
-    - The final task reports the branch and the verification record; the owner decides push and deployment.
+    - The final task reports the topic branch, pull request, and verification record; the owner reviews/merges and separately accepts deployment.

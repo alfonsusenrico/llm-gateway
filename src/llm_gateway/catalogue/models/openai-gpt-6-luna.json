@@ -1,0 +1,34 @@
+{
+  "provider": "openai",
+  "model": "gpt-6-luna",
+  "context_window_tokens": 1050000,
+  "max_output_tokens": 128000,
+  "reasoning_efforts": [
+    "none",
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max"
+  ],
+  "default_reasoning_effort": "medium",
+  "temperature": "only_with_effort_none",
+  "inputs": [
+    "text",
+    "image",
+    "file"
+  ],
+  "service_tiers": [
+    "standard",
+    "flex"
+  ],
+  "function_tools": true,
+  "development_only": false,
+  "alias": "openai-gpt-6-luna",
+  "schema_version": 1,
+  "task": "llm",
+  "adapter": "openai-responses",
+  "deployment": "openai",
+  "execution": "remote",
+  "billing": "token"
+}

@@ -1,8 +1,4 @@
-"""Contract version 1: what a project is and what it requests per environment.
-
-Unknown fields are rejected everywhere. Later phases add optional fields under
-version 1; a breaking change needs version 2 and a stated deprecation window.
-"""
+"""Current alias-backed contracts and preserved historical contract readers."""
 
 from __future__ import annotations
 
@@ -69,7 +65,7 @@ class ContractRequest(_Strict):
     development: EnvironmentRequest
 
 
-class ModelProfile(_Strict):
+class LegacyModelProfile(_Strict):
     provider: Literal["openai", "stub"]
     model: str = Field(min_length=1, max_length=160)
     reasoning_effort: str | None = Field(default=None, min_length=1, max_length=32)
@@ -83,17 +79,51 @@ class ContractV1(_Strict):
     display_name: str = Field(min_length=1, max_length=80)
     status: Literal["active", "disabled"]
     request: ContractRequest
-    profiles: dict[ProfileName, ModelProfile] = Field(default_factory=dict, max_length=MAX_PROFILES)
+    profiles: dict[ProfileName, LegacyModelProfile] = Field(
+        default_factory=dict, max_length=MAX_PROFILES
+    )
 
     def to_json(self) -> dict[str, Any]:
         """The stored and exported form: money as decimal strings, unset options omitted."""
         return self.model_dump(mode="json", exclude_none=True)
 
 
-def parse_contract(data: object) -> ContractV1:
+class ProfileParameters(_Strict):
+    reasoning_effort: str | None = Field(default=None, min_length=1, max_length=32)
+    max_output_tokens: int | None = Field(default=None, ge=1, le=128_000)
+    temperature: float | None = Field(default=None, ge=0, le=2)
+
+
+class ModelProfile(_Strict):
+    model: str = Field(pattern=r"^[a-z][a-z0-9._-]{1,159}$")
+    parameters: ProfileParameters = ProfileParameters()
+
+
+class ContractV2(_Strict):
+    contract_version: Literal[2]
+    project_id: str = Field(pattern=PROJECT_ID_PATTERN)
+    display_name: str = Field(min_length=1, max_length=80)
+    status: Literal["active", "disabled"]
+    request: ContractRequest
+    profiles: dict[ProfileName, ModelProfile] = Field(default_factory=dict, max_length=MAX_PROFILES)
+
+    def to_json(self) -> dict[str, Any]:
+        return self.model_dump(mode="json", exclude_none=True)
+
+
+def parse_historical_contract(data: object) -> ContractV1 | ContractV2:
+    if isinstance(data, dict) and data.get("contract_version") == 1:
+        try:
+            return ContractV1.model_validate(data)
+        except ValidationError as exc:
+            raise ContractError(describe_validation_error(exc)) from None
+    return parse_contract(data)
+
+
+def parse_contract(data: object) -> ContractV2:
     """Validate a contract or raise `ContractError` naming each failing field."""
     try:
-        return ContractV1.model_validate(data)
+        return ContractV2.model_validate(data)
     except ValidationError as exc:
         raise ContractError(describe_validation_error(exc)) from None
 

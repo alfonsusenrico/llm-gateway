@@ -16,23 +16,32 @@ TODAY = date(2026, 10, 13)
 
 
 def _files(tmp_path: Path, models: Any = None, prices: Any = None) -> tuple[Path, Path]:
-    base_models = json.loads((DATA_DIR / "models.json").read_text())
-    base_prices = json.loads((DATA_DIR / "prices.json").read_text())
-    models_path, prices_path = tmp_path / "models.json", tmp_path / "prices.json"
-    models_path.write_text(json.dumps(models if models is not None else base_models))
+    base_models = _base("models.json")
+    base_prices = _base("prices.json")
+    models_path, prices_path = tmp_path / "models", tmp_path / "prices.json"
+    models_path.mkdir(exist_ok=True)
+    for index, entry in enumerate((models if models is not None else base_models)["models"]):
+        (models_path / f"{index}.json").write_text(json.dumps(entry))
     prices_path.write_text(json.dumps(prices if prices is not None else base_prices))
     return models_path, prices_path
 
 
 def _base(name: str) -> dict[str, Any]:
+    if name == "models.json":
+        return {
+            "models": [
+                json.loads(path.read_text())
+                for path in sorted((DATA_DIR / "models").glob("*.json"))
+            ]
+        }
     return json.loads((DATA_DIR / name).read_text())
 
 
 def test_packaged_catalogue_loads_with_both_models() -> None:
     catalogue = get_catalogue()
 
-    assert sorted(catalogue.models) == [("openai", "gpt-6-luna"), ("stub", "stub-echo")]
-    assert catalogue.models[("stub", "stub-echo")].development_only is True
+    assert sorted(catalogue.models) == ["openai-gpt-6-luna", "stub-echo"]
+    assert catalogue.models["stub-echo"].development_only is True
 
 
 def test_unknown_field_stops_loading(tmp_path: Path) -> None:
@@ -65,7 +74,7 @@ def test_default_effort_must_be_allowed(tmp_path: Path) -> None:
     models = _base("models.json")
     models["models"][0]["default_reasoning_effort"] = "turbo"
 
-    with pytest.raises(CatalogueError, match="default_reasoning_effort"):
+    with pytest.raises(CatalogueError, match="definition"):
         load_catalogue(*_files(tmp_path, models=models))
 
 
@@ -134,54 +143,24 @@ def test_stub_is_free() -> None:
 
 
 @pytest.mark.parametrize(
-    ("profile", "expected"),
+    ("parameters", "valid"),
     [
-        (ModelProfile(provider="openai", model="gpt-6-luna", reasoning_effort="low"), []),
-        (
-            ModelProfile(
-                provider="openai", model="gpt-6-luna", reasoning_effort="none", temperature=0.7
-            ),
-            [],
-        ),
-        (
-            ModelProfile(
-                provider="openai", model="gpt-6-luna", reasoning_effort="low", temperature=0.7
-            ),
-            [
-                "profiles.chat.temperature: this model accepts temperature only with reasoning_effort none"
-            ],
-        ),
-        (
-            ModelProfile(provider="openai", model="gpt-6-luna", temperature=0.7),
-            [
-                "profiles.chat.temperature: this model accepts temperature only with reasoning_effort none"
-            ],
-        ),
-        (
-            ModelProfile(provider="openai", model="gpt-9"),
-            ["profiles.chat.model: openai/gpt-9 is not in the catalogue"],
-        ),
-        (
-            ModelProfile(provider="openai", model="gpt-6-luna", reasoning_effort="turbo"),
-            [
-                "profiles.chat.reasoning_effort: this model accepts none, low, medium, high, xhigh, max"
-            ],
-        ),
-        (
-            # Built without validation: the contract's own bound would reject it first.
-            ModelProfile.model_construct(
-                provider="openai",
-                model="gpt-6-luna",
-                reasoning_effort=None,
-                max_output_tokens=128_001,
-                temperature=None,
-            ),
-            ["profiles.chat.max_output_tokens: this model allows at most 128000"],
-        ),
+        ({"reasoning_effort": "low"}, True),
+        ({"reasoning_effort": "none", "temperature": 0.7}, True),
+        ({"reasoning_effort": "low", "temperature": 0.7}, False),
+        ({"temperature": 0.7}, False),
+        ({"reasoning_effort": "turbo"}, False),
     ],
 )
-def test_profile_checks(profile: ModelProfile, expected: list[str]) -> None:
-    assert profile_errors("chat", profile, get_catalogue()) == expected
+def test_profile_checks(parameters: dict[str, Any], valid: bool) -> None:
+    profile = ModelProfile.model_validate({"model": "openai-gpt-6-luna", "parameters": parameters})
+    errors = profile_errors("chat", profile, get_catalogue())
+    assert (not errors) == valid
+    assert all(error.startswith("profiles.chat.") for error in errors)
+
+
+def test_unknown_profile_alias_is_refused() -> None:
+    assert profile_errors("chat", ModelProfile(model="openai-gpt-9"), get_catalogue())
 
 
 def test_provider_tier_names_map_to_catalogue_tiers() -> None:

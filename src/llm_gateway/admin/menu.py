@@ -10,7 +10,8 @@ from typing import Any
 from psycopg_pool import AsyncConnectionPool
 
 from llm_gateway.admin import project_commands as projects
-from llm_gateway.admin.cli import notifier_test
+from llm_gateway.admin.cli import notifier_test, sync_models
+from llm_gateway.catalogue.model import CatalogueError
 from llm_gateway.db.pool import create_pool
 from llm_gateway.projects.contract import ContractError, Environment
 from llm_gateway.projects.service import RegistryError
@@ -29,6 +30,11 @@ LLM Gateway admin
   6  Remove a profile         12  Send a test alert
                               13  Show grants
                               14  Set a project weight
+                              15  Set provider credentials
+                              16  Remove provider credentials
+                              17  List credential metadata
+                              18  Upgrade project contracts
+                              19  Synchronize model aliases
   0  Exit"""
 
 
@@ -115,7 +121,7 @@ class Menu:
             except _Cancelled:
                 self._write("Cancelled.")
                 continue
-            except (RegistryError, ContractError) as exc:
+            except (RegistryError, ContractError, CatalogueError) as exc:
                 self._write(f"error: {exc}")
                 continue
             if result is None:
@@ -180,20 +186,41 @@ class Menu:
                 project_id = await self._ask("Project ID: ")
                 weight = await self._ask_parsed("Weight [1-100]: ", _positive_int)
                 return await projects.set_weight(pool, self._settings, project_id, weight)
+            case "15" | "16" | "17":
+                from llm_gateway.admin import credential_commands as credentials
+
+                project_id = await self._ask("Project ID: ")
+                if choice == "17":
+                    return await credentials.list_credentials(pool, self._settings, project_id)
+                provider = await self._ask("Provider: ")
+                if choice == "16":
+                    return await credentials.remove_credential(
+                        pool, self._settings, project_id, provider
+                    )
+                secret = await asyncio.to_thread(credentials.read_credential)
+                return await credentials.set_credential(
+                    pool, self._settings, project_id, provider, secret
+                )
+            case "18":
+                project_id = await self._ask("Project ID (empty for all): ", required=False)
+                return await projects.upgrade_contracts(pool, project_id or None)
+            case "19":
+                return await sync_models(pool, self._settings)
         return None
 
     async def _set_profile(self) -> str:
         project_id = await self._ask("Project ID: ")
         name = await self._ask("Profile name: ")
         profile: dict[str, Any] = {
-            "provider": await self._ask_parsed("Provider [openai/stub]: ", _provider),
-            "model": await self._ask("Model: "),
-            "reasoning_effort": await self._ask("Reasoning effort (optional): ", required=False)
-            or None,
-            "max_output_tokens": await self._ask_optional(
-                "Max output tokens (optional): ", _positive_int
-            ),
-            "temperature": await self._ask_optional("Temperature (optional): ", _temperature),
+            "model": await self._ask("Model alias: "),
+            "parameters": {
+                "reasoning_effort": await self._ask("Reasoning effort (optional): ", required=False)
+                or None,
+                "max_output_tokens": await self._ask_optional(
+                    "Max output tokens (optional): ", _positive_int
+                ),
+                "temperature": await self._ask_optional("Temperature (optional): ", _temperature),
+            },
         }
         return await projects.set_profile(self._pool, project_id, name, profile)
 
@@ -228,12 +255,6 @@ def _usd(value: str) -> str:
         Decimal(value)
     except InvalidOperation:
         raise ValueError('Enter a decimal amount such as "1.50".') from None
-    return value
-
-
-def _provider(value: str) -> str:
-    if value not in {"openai", "stub"}:
-        raise ValueError("Enter openai or stub.")
     return value
 
 

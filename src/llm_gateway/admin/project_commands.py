@@ -73,7 +73,7 @@ async def register(
     }
     contract = parse_contract(
         {
-            "contract_version": 1,
+            "contract_version": 2,
             "project_id": project_id,
             "display_name": display_name,
             "status": "active",
@@ -95,6 +95,24 @@ async def list_projects(pool: AsyncConnectionPool) -> str:
         for p in projects
     ]
     return "\n".join(lines)
+
+
+async def upgrade_contracts(pool: AsyncConnectionPool, project_id: str | None) -> str:
+    identifiers = (
+        [project_id] if project_id else [p.project_id for p in await service.list_projects(pool)]
+    )
+    upgraded = 0
+    failed = []
+    for identifier in identifiers:
+        try:
+            upgraded += await service.upgrade_contract(pool, identifier, actor=actor())
+        except (service.RegistryError, ContractError):
+            failed.append(identifier)
+    if failed:
+        raise service.RegistryError(
+            f"Contract upgrades: {upgraded}; failed projects: {', '.join(failed)}"
+        )
+    return f"Contracts upgraded: {upgraded}."
 
 
 async def show(pool: AsyncConnectionPool, project_id: str, version: int | None = None) -> str:

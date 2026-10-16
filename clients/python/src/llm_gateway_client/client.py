@@ -18,9 +18,10 @@ from llm_gateway_client.errors import GatewayError, RetryableError, error_from_p
 from llm_gateway_client.models import (
     Allocation,
     CallResult,
-    CatalogueModel,
     Completed,
     Identity,
+    ModelDetails,
+    ModelSummary,
     RefusalDelta,
     Started,
     StreamEvent,
@@ -157,7 +158,7 @@ class _Responses:
         operation: str,
         input: str | list[dict[str, Any]],
         profile: str | None = None,
-        model: dict[str, str] | None = None,
+        model: str | None = None,
         instructions: str | None = None,
         text_format: dict[str, Any] | None = None,
         max_output_tokens: int | None = None,
@@ -213,6 +214,7 @@ class GatewayClient:
         self._sleep = sleep
         self._limiter = _AsyncLimiter()
         self.responses = _Responses(self)
+        self.models = _Models(self)
 
     async def __aenter__(self) -> GatewayClient:
         return self
@@ -317,10 +319,6 @@ class GatewayClient:
     async def allocation(self) -> Allocation:
         return Allocation.model_validate(await self._get("/v1/allocation"))
 
-    async def catalogue(self) -> list[CatalogueModel]:
-        data = await self._get("/v1/catalogue")
-        return [CatalogueModel.model_validate(item) for item in data["models"]]
-
     async def whoami(self) -> Identity:
         return Identity.model_validate(await self._get("/v1/projects/self"))
 
@@ -377,6 +375,7 @@ class SyncGatewayClient:
         self._sleep = sleep
         self._limiter = _SyncLimiter()
         self.responses = _SyncResponses(self)
+        self.models = _SyncModels(self)
 
     def __enter__(self) -> SyncGatewayClient:
         return self
@@ -423,10 +422,40 @@ class SyncGatewayClient:
     def allocation(self) -> Allocation:
         return Allocation.model_validate(self._get("/v1/allocation"))
 
-    def catalogue(self) -> list[CatalogueModel]:
-        return [
-            CatalogueModel.model_validate(item) for item in self._get("/v1/catalogue")["models"]
-        ]
-
     def whoami(self) -> Identity:
         return Identity.model_validate(self._get("/v1/projects/self"))
+
+
+class _Models:
+    def __init__(self, client: GatewayClient) -> None:
+        self._client = client
+
+    async def list(self, *, task: str | None = None) -> list[ModelSummary]:
+        from urllib.parse import urlencode
+
+        path = "/v1/models" + ("?" + urlencode({"task": task}) if task else "")
+        data = await self._client._get(path)
+        return [ModelSummary.model_validate(item) for item in data["models"]]
+
+    async def get(self, alias: str) -> ModelDetails:
+        from urllib.parse import quote
+
+        return ModelDetails.model_validate(
+            await self._client._get("/v1/models/" + quote(alias, safe=""))
+        )
+
+
+class _SyncModels:
+    def __init__(self, client: SyncGatewayClient) -> None:
+        self._client = client
+
+    def list(self, *, task: str | None = None) -> list[ModelSummary]:
+        from urllib.parse import urlencode
+
+        path = "/v1/models" + ("?" + urlencode({"task": task}) if task else "")
+        return [ModelSummary.model_validate(item) for item in self._client._get(path)["models"]]
+
+    def get(self, alias: str) -> ModelDetails:
+        from urllib.parse import quote
+
+        return ModelDetails.model_validate(self._client._get("/v1/models/" + quote(alias, safe="")))
