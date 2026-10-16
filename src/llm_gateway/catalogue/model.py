@@ -34,8 +34,48 @@ class _Strict(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
+class LocalLlmContract(_Strict):
+    protocol: Literal["ollama-gpu-native-v1"]
+    runtime_version: Literal["0.5.11"]
+    artifact_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    template_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    system_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    prompt_fixed_bytes: int = Field(ge=256, le=4096)
+    prompt_message_bytes: int = Field(ge=128, le=4096)
+    default_temperature: Literal[0] = 0
+
+
+# Canonical field sets belong to a schema version. Adding fields in a later
+# version must not change an already registered alias's normalized definition.
+_V1_FIELDS = frozenset(
+    [
+        "schema_version",
+        "alias",
+        "task",
+        "adapter",
+        "deployment",
+        "execution",
+        "billing",
+        "provider",
+        "model",
+        "context_window_tokens",
+        "max_output_tokens",
+        "reasoning_efforts",
+        "default_reasoning_effort",
+        "temperature",
+        "inputs",
+        "service_tiers",
+        "function_tools",
+        "development_only",
+        "streaming",
+        "structured_output",
+        "prompt_cache",
+    ]
+)
+
+
 class ModelEntry(_Strict):
-    schema_version: Literal[1] = 1
+    schema_version: Literal[1, 2] = 1
     alias: str = Field(pattern=ALIAS_PATTERN)
     task: Task = "llm"
     adapter: str
@@ -57,6 +97,7 @@ class ModelEntry(_Strict):
     structured_output: bool = True
     prompt_cache: bool = True
     documentation: tuple[str, ...] = ()
+    local: LocalLlmContract | None = None
 
     @model_validator(mode="after")
     def _default_effort_is_allowed(self) -> ModelEntry:
@@ -85,12 +126,28 @@ class ModelEntry(_Strict):
                 raise ValueError(f"{name} is not supported by the adapter")
         if (self.billing == "zero") != (self.execution in {"local", "stub"}):
             raise ValueError("local/stub execution must explicitly declare zero provider fee")
+        if self.adapter == "ollama-native":
+            if self.schema_version != 2 or self.local is None or self.deployment != "ollama":
+                raise ValueError("ollama-native requires a schema-2 local deployment contract")
+            if self.inputs != ("text",) or self.service_tiers != ("standard",):
+                raise ValueError("ollama-native supports text and the standard tier only")
+            if self.temperature != "always":
+                raise ValueError("ollama-native requires explicit temperature support")
+            if self.context_window_tokens > 4096 or self.max_output_tokens > 1024:
+                raise ValueError("ollama-native limits exceed its execution contract")
+            if self.max_output_tokens >= self.context_window_tokens:
+                raise ValueError("local context must leave room for input")
+        elif self.schema_version != 1 or self.local is not None:
+            raise ValueError("local execution contract requires ollama-native")
         return self
 
     @property
     def definition_digest(self) -> str:
         value = json.dumps(
-            self.model_dump(mode="json", exclude={"documentation"}),
+            self.model_dump(
+                mode="json",
+                include=set(_V1_FIELDS) | ({"local"} if self.schema_version == 2 else set()),
+            ),
             sort_keys=True,
             separators=(",", ":"),
         )

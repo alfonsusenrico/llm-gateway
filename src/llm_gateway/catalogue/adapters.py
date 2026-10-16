@@ -21,4 +21,7 @@ class AdapterDefinition:
 ADAPTERS: dict[str, AdapterDefinition] = {
     "openai-responses": AdapterDefinition("llm", "openai", "remote"),
     "stub": AdapterDefinition("llm", "stub", "stub"),
+    "ollama-native": AdapterDefinition(
+        "llm", "ollama", "local", reasoning=False, tools=False, prompt_cache=False
+    ),
 }

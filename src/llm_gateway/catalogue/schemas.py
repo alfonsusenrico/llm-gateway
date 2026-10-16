@@ -69,6 +69,16 @@ def _schema(definition: str) -> dict[str, Any]:
         "unique; tool choice must name a declared function; continuation outputs must "
         "follow their corresponding call IDs. JSON Schema is followed by these semantic checks."
     )
+    if entry.local is not None:
+        schema["x-semantic-constraints"] = {
+            "messages": "Developer messages must lead; final message must be user. Text parts join with newlines.",
+            "context": "UTF-8 content bytes + fixed allowance + per-message allowance + maximum output tokens must fit context.",
+            "prompt_fixed_bytes": entry.local.prompt_fixed_bytes,
+            "prompt_message_bytes": entry.local.prompt_message_bytes,
+            "context_window_tokens": entry.context_window_tokens,
+            "output_schema": "Object schema, at most 16 KiB and depth 32; no references or regex keywords.",
+        }
+        properties["temperature"]["default"] = entry.local.default_temperature
     content = schema["$defs"]["Message"]["properties"]["content"]["anyOf"]
     parts = content[1]["items"]
     allowed_parts = {"input_text": "text", "input_image": "image", "input_file": "file"}

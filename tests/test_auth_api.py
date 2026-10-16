@@ -257,12 +257,18 @@ async def test_catalogue_hides_development_models_from_production_keys(gateway: 
         "/v1/models", headers={"Authorization": f"Bearer {keys['development'].raw}"}
     )
 
-    assert [m["model"] for m in production.json()["models"]] == ["gpt-6-luna"]
-    assert [m["model"] for m in development.json()["models"]] == ["gpt-6-luna", "stub-echo"]
-    luna = production.json()["models"][0]
+    prod_models = {m["alias"]: m for m in production.json()["models"]}
+    dev_models = {m["alias"]: m for m in development.json()["models"]}
+    assert set(prod_models) == {
+        "openai-gpt-6-luna",
+        "ollama-qwen2.5-3b-instruct-q4km-v1",
+        "ollama-llama3.2-3b-instruct-q4km-v1",
+    }
+    assert set(dev_models) == {*prod_models, "stub-echo"}
+    luna = prod_models["openai-gpt-6-luna"]
     assert luna["prices"]["standard"]["usd_per_million"]["input"] == "0.10"
     assert luna["prices"]["flex"]["usd_per_million"]["output"] == "0.25"
-    stub = development.json()["models"][1]
+    stub = dev_models["stub-echo"]
     assert stub["prices"] == {}
     assert stub["billing"] == "zero"
     assert production.headers["Cache-Control"] == "private, no-store"

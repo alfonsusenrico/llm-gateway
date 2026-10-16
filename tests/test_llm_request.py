@@ -142,7 +142,7 @@ def test_stub_is_allowed_for_development_keys() -> None:
 
 def test_input_type_the_model_does_not_accept(tmp_path: Path) -> None:
     models = _base("models.json")
-    models["models"][0]["inputs"] = ["text"]
+    next(m for m in models["models"] if m["alias"] == "openai-gpt-6-luna")["inputs"] = ["text"]
     catalogue = load_catalogue(*_files(tmp_path, models=models))
     image = {"type": "input_image", "media_type": "image/png", "data_base64": "aGVsbG8="}
 

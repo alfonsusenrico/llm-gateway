@@ -72,7 +72,7 @@ def allowance_headers(allowance: Allowance) -> dict[str, str]:
 _RESPONSES[409]["description"] += "; credential_changed; call_configuration_changed"
 _RESPONSES[422]["description"] += "; model_task_mismatch"
 _RESPONSES[503]["description"] += (
-    "; provider_credentials_missing; provider_credentials_unreadable; model_registry_unavailable; contract_upgrade_required"
+    "; provider_credentials_missing; provider_credentials_unreadable; model_registry_unavailable; contract_upgrade_required; provider_configuration_mismatch"
 )
 _RESPONSES[200] = {
     "description": "A typed result or gateway server-sent events.",

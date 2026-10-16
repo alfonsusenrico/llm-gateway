@@ -1,0 +1,11 @@
+# Optional connection to separately managed inference services. Copy this file to
+# an ignored local override and set OLLAMA_BASE_URL in .env. The ordinary stack
+# and synthetic checks do not require this external network or any GPU.
+services:
+  api:
+    networks: [default, inference]
+
+networks:
+  inference:
+    external: true
+    name: ${INFERENCE_NETWORK:?Set INFERENCE_NETWORK to the private inference service network}

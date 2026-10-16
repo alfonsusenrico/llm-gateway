@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 from typing import Annotated, Literal
+from urllib.parse import urlsplit
 
 from cryptography.fernet import Fernet
 from pydantic import Field, PostgresDsn, SecretStr, ValidationError, field_validator
@@ -43,6 +44,7 @@ class Settings(BaseSettings):
 
     # A provider call's deadline; an admitted call's lease adds a minute to it.
     llm_call_timeout_seconds: int = Field(default=180, ge=10, le=900)
+    ollama_base_url: str | None = Field(default=None, max_length=2048)
     provider_credential_encryption_key: SecretStr
     # Fernet key for stored call results; changing it makes stored results expire.
     result_encryption_key: SecretStr
@@ -70,6 +72,25 @@ class Settings(BaseSettings):
     def _encryption_key_is_fernet(cls, value: SecretStr) -> SecretStr:
         Fernet(value.get_secret_value().encode("ascii"))
         return value
+
+    @field_validator("ollama_base_url")
+    @classmethod
+    def _local_url_is_backend_destination(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        url = urlsplit(value)
+        if (
+            url.scheme not in {"http", "https"}
+            or not url.hostname
+            or url.username is not None
+            or url.password is not None
+            or url.query
+            or url.fragment
+            or any(character.isspace() or ord(character) < 32 for character in value)
+        ):
+            raise ValueError("must be an HTTP URL without credentials, query or fragment")
+        _ = url.port  # Validate malformed/out-of-range ports without exposing the URL.
+        return value.rstrip("/")
 
     @field_validator("project_key_pepper")
     @classmethod

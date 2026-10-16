@@ -282,7 +282,12 @@ async def test_allocation_catalogue_and_identity(calls: Calls) -> None:
     assert await client.models.list(task="embedding") == []
 
     assert (allocation.project_id, allocation.environment) == ("alpha", "development")
-    assert [m.model for m in models] == ["gpt-6-luna", "stub-echo"]
+    assert {m.alias: m.model for m in models} == {
+        "ollama-llama3.2-3b-instruct-q4km-v1": "llama3.2-3b-instruct-q4km-v1:latest",
+        "ollama-qwen2.5-3b-instruct-q4km-v1": "qwen2.5-3b-instruct-q4km-v1:latest",
+        "openai-gpt-6-luna": "gpt-6-luna",
+        "stub-echo": "stub-echo",
+    }
     assert (identity.project_id, identity.environment) == ("alpha", "development")
 
 

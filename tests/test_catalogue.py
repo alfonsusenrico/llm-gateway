@@ -37,10 +37,15 @@ def _base(name: str) -> dict[str, Any]:
     return json.loads((DATA_DIR / name).read_text())
 
 
-def test_packaged_catalogue_loads_with_both_models() -> None:
+def test_packaged_catalogue_loads_reviewed_models() -> None:
     catalogue = get_catalogue()
 
-    assert sorted(catalogue.models) == ["openai-gpt-6-luna", "stub-echo"]
+    assert sorted(catalogue.models) == [
+        "ollama-llama3.2-3b-instruct-q4km-v1",
+        "ollama-qwen2.5-3b-instruct-q4km-v1",
+        "openai-gpt-6-luna",
+        "stub-echo",
+    ]
     assert catalogue.models["stub-echo"].development_only is True
 
 

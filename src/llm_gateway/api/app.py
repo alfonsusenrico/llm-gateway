@@ -26,6 +26,7 @@ from llm_gateway.api.routes_responses import router as responses_router
 from llm_gateway.catalogue.model import get_catalogue
 from llm_gateway.db.pool import create_pool, database_ready
 from llm_gateway.llm.errors import CallRejectedError
+from llm_gateway.llm.ollama_adapter import OllamaAdapter
 from llm_gateway.llm.openai_adapter import CredentialOpenAIAdapter
 from llm_gateway.llm.providers import ProviderAdapter
 from llm_gateway.llm.results import ResultStore
@@ -124,6 +125,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 retry_after_seconds=_READINESS_RETRY_AFTER_SECONDS,
             )
         providers = {"openai": "adapter_available"}
+        if settings.ollama_base_url is not None:
+            providers["ollama"] = "adapter_available"
         return JSONResponse(
             {"status": "ready", "revision": settings.app_revision, "providers": providers}
         )
@@ -137,7 +140,15 @@ def create_call_deps(settings: Settings, pool: AsyncConnectionPool) -> CallDeps:
             raise CallRejectedError("provider_credentials_missing")
         return CredentialOpenAIAdapter(credential.secret, settings.llm_call_timeout_seconds)
 
-    adapters = {"stub": lambda _credential: StubAdapter(), "openai-responses": openai_adapter}
+    adapters: dict[str, Callable[[Credential | None], ProviderAdapter]] = {
+        "stub": lambda _credential: StubAdapter(),
+        "openai-responses": openai_adapter,
+    }
+    local_url = settings.ollama_base_url
+    if local_url is not None:
+        adapters["ollama-native"] = lambda _credential: OllamaAdapter(
+            local_url, settings.llm_call_timeout_seconds
+        )
     return CallDeps(
         pool=pool,
         settings=settings,
