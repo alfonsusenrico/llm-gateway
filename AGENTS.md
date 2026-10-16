@@ -3,8 +3,8 @@
 ## Purpose and boundaries
 
 The owner's personal AI inference gateway. Projects call its separate LLM, embedding
-and OCR APIs instead of directly managing inference providers. Embedding and OCR
-execution are introduced in subsequent approved changes.
+and OCR APIs instead of directly managing inference providers. OCR execution is
+introduced in a subsequent approved change.
 
 - **The gateway owns:**
   - encrypted project/provider credentials and local or paid inference execution;
@@ -47,13 +47,15 @@ docker compose run --rm api llm-gateway-admin grants show      # every grant and
 ## Code references
 
 - `src/llm_gateway/api/`: app/lifespan, bearer project authentication, allocation,
-  model discovery and `/v1/responses`; RFC 9457 errors in `problems.py`.
+  model discovery, `/v1/responses` and `/v1/embeddings`; RFC 9457 errors in `problems.py`.
 - `catalogue/`: individual `models/*.json`, dated `prices.json`, strict loaders,
   adapter declarations, executable request schemas and immutable alias bindings.
 - `projects/`: current/historical contracts, versioned registry edits, access
   keys, explicit contract upgrades and encrypted provider credentials.
 - `llm/`: request/resolution, adapter factories, OpenAI/stub execution, encrypted
   result replay, direct service and detached streaming producers.
+- `embeddings/`: bounded text batches, task schemas, native local/OpenAI adapters,
+  vector validation and typed results. Vector storage/search remains in projects.
 - `calls/`: admission, settlement/state audit, spend and budget thresholds.
   `allocation/`: deterministic integer policy and locked recomputation.
 - `notifier/events.py`: `raise_alert`, the sole content-free alert entry point;
@@ -90,8 +92,10 @@ docker compose run --rm api llm-gateway-admin grants show      # every grant and
   dedicated `PROVIDER_CREDENTIAL_ENCRYPTION_KEY` is separate from the result key.
   A global provider key is never an execution fallback. New/current contracts use
   aliases; upgrade version-1 documents explicitly through the registry.
-- Every OpenAI request sends `store: false`. Never enable provider-side
-  storage or conversation state.
+- Every OpenAI Responses request sends `store: false`. The stateless Embeddings
+  API has no `store` parameter and is allowed without it (owner, 2026-10-16).
+  Never enable provider-side application storage or conversation state; standard
+  provider abuse-monitoring retention still applies.
 - A new problem code needs a mapping in
   `clients/python/src/llm_gateway_client/errors.py`. The contract guard test
   fails until it has one. Client and gateway are released together under

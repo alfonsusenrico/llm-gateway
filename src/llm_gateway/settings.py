@@ -45,6 +45,7 @@ class Settings(BaseSettings):
     # A provider call's deadline; an admitted call's lease adds a minute to it.
     llm_call_timeout_seconds: int = Field(default=180, ge=10, le=900)
     ollama_base_url: str | None = Field(default=None, max_length=2048)
+    embeddings_base_url: str | None = Field(default=None, max_length=2048)
     provider_credential_encryption_key: SecretStr
     # Fernet key for stored call results; changing it makes stored results expire.
     result_encryption_key: SecretStr
@@ -73,7 +74,7 @@ class Settings(BaseSettings):
         Fernet(value.get_secret_value().encode("ascii"))
         return value
 
-    @field_validator("ollama_base_url")
+    @field_validator("ollama_base_url", "embeddings_base_url")
     @classmethod
     def _local_url_is_backend_destination(cls, value: str | None) -> str | None:
         if value is None:

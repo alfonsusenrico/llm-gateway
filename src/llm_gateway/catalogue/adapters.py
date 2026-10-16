@@ -24,4 +24,10 @@ ADAPTERS: dict[str, AdapterDefinition] = {
     "ollama-native": AdapterDefinition(
         "llm", "ollama", "local", reasoning=False, tools=False, prompt_cache=False
     ),
+    "local-embeddings": AdapterDefinition(
+        "embedding", "sentence_transformers", "local", False, False, False, False, False
+    ),
+    "openai-embeddings": AdapterDefinition(
+        "embedding", "openai", "remote", False, False, False, False, False
+    ),
 }

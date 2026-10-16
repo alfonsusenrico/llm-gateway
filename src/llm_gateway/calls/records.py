@@ -114,6 +114,7 @@ class CallRequest:
     credential_revision: UUID | None = None
     billing_kind: str = "token"
     task: str = "llm"
+    input_token_upper_bound: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

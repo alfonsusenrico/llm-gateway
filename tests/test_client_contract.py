@@ -279,10 +279,15 @@ async def test_allocation_catalogue_and_identity(calls: Calls) -> None:
     identity = await client.whoami()
     details = await client.models.get("stub-echo")
     assert details.request_schema["properties"]["model"]["const"] == "stub-echo"
-    assert await client.models.list(task="embedding") == []
+    embeddings = await client.models.list(task="embedding")
+    assert len(embeddings) == 4 and all(m.task == "embedding" for m in embeddings)
 
     assert (allocation.project_id, allocation.environment) == ("alpha", "development")
     assert {m.alias: m.model for m in models} == {
+        "local-bge-small-en-v1.5-retrieval-v1": "bge-small-en-v1.5-retrieval-v1",
+        "local-minilm-l6-v2-v1": "minilm-l6-v2-v1",
+        "openai-text-embedding-3-small": "text-embedding-3-small",
+        "openai-text-embedding-3-large": "text-embedding-3-large",
         "ollama-llama3.2-3b-instruct-q4km-v1": "llama3.2-3b-instruct-q4km-v1:latest",
         "ollama-qwen2.5-3b-instruct-q4km-v1": "qwen2.5-3b-instruct-q4km-v1:latest",
         "openai-gpt-6-luna": "gpt-6-luna",

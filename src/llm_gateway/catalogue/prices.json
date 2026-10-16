@@ -26,6 +26,34 @@
       "usd_per_million": {"input": "0", "cached_input": "0", "cache_write": "0", "output": "0"},
       "long_context": null,
       "source_url": "https://github.com/alfonsusenrico/llm-gateway"
+    },
+    {
+      "provider": "openai",
+      "model": "text-embedding-3-small",
+      "service_tier": "standard",
+      "effective_from": "2026-10-16",
+      "usd_per_million": {
+        "input": "0.02",
+        "cached_input": "0.02",
+        "cache_write": "0.02",
+        "output": "0"
+      },
+      "long_context": null,
+      "source_url": "https://developers.openai.com/api/docs/models/text-embedding-3-small"
+    },
+    {
+      "provider": "openai",
+      "model": "text-embedding-3-large",
+      "service_tier": "standard",
+      "effective_from": "2026-10-16",
+      "usd_per_million": {
+        "input": "0.13",
+        "cached_input": "0.13",
+        "cache_write": "0.13",
+        "output": "0"
+      },
+      "long_context": null,
+      "source_url": "https://developers.openai.com/api/docs/models/text-embedding-3-large"
     }
   ]
 }

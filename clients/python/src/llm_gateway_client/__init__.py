@@ -1,6 +1,6 @@
 """Typed Python client for LLM Gateway."""
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"
 
 from llm_gateway_client.client import GatewayClient, RetryPolicy, SyncGatewayClient
 from llm_gateway_client.errors import (
@@ -16,6 +16,9 @@ from llm_gateway_client.models import (
     Allocation,
     CallResult,
     Completed,
+    EmbeddingResult,
+    EmbeddingUsage,
+    EmbeddingVector,
     Identity,
     ModelDetails,
     ModelSummary,
@@ -41,6 +44,9 @@ __all__ = [
     "BudgetExhaustedError",
     "CallResult",
     "Completed",
+    "EmbeddingResult",
+    "EmbeddingUsage",
+    "EmbeddingVector",
     "ExecutionUnknownError",
     "GatewayClient",
     "GatewayError",

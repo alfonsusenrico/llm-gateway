@@ -45,6 +45,20 @@ class LocalLlmContract(_Strict):
     default_temperature: Literal[0] = 0
 
 
+class EmbeddingContract(_Strict):
+    dimensions: int = Field(ge=1, le=3072)
+    variable_dimensions: bool = False
+    normalized: Literal[True] = True
+    max_batch_size: int = Field(ge=1, le=64)
+    max_input_bytes: int = Field(ge=1, le=200_000)
+    max_batch_tokens: int = Field(ge=1, le=300_000)
+    input_types: tuple[Literal["query", "document"], ...] = ()
+    query_prefix: str = Field(default="", max_length=512)
+    pooling: Literal["mean", "cls", "provider"]
+    revision: str | None = Field(default=None, pattern=r"^[0-9a-f]{40}$")
+    service_definition_digest: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+
+
 # Canonical field sets belong to a schema version. Adding fields in a later
 # version must not change an already registered alias's normalized definition.
 _V1_FIELDS = frozenset(
@@ -75,7 +89,7 @@ _V1_FIELDS = frozenset(
 
 
 class ModelEntry(_Strict):
-    schema_version: Literal[1, 2] = 1
+    schema_version: Literal[1, 2, 3] = 1
     alias: str = Field(pattern=ALIAS_PATTERN)
     task: Task = "llm"
     adapter: str
@@ -85,7 +99,7 @@ class ModelEntry(_Strict):
     provider: str = Field(pattern=r"^[a-z][a-z0-9_-]{1,31}$")
     model: str = Field(min_length=1, max_length=160)
     context_window_tokens: int = Field(ge=1)
-    max_output_tokens: int = Field(ge=1)
+    max_output_tokens: int = Field(ge=0)
     reasoning_efforts: tuple[str, ...] = ()
     default_reasoning_effort: str | None = None
     temperature: TemperatureRule
@@ -98,6 +112,7 @@ class ModelEntry(_Strict):
     prompt_cache: bool = True
     documentation: tuple[str, ...] = ()
     local: LocalLlmContract | None = None
+    embedding: EmbeddingContract | None = None
 
     @model_validator(mode="after")
     def _default_effort_is_allowed(self) -> ModelEntry:
@@ -126,7 +141,37 @@ class ModelEntry(_Strict):
                 raise ValueError(f"{name} is not supported by the adapter")
         if (self.billing == "zero") != (self.execution in {"local", "stub"}):
             raise ValueError("local/stub execution must explicitly declare zero provider fee")
-        if self.adapter == "ollama-native":
+        if self.task == "llm" and self.max_output_tokens < 1:
+            raise ValueError("LLM output limit must be positive")
+        if self.task == "embedding":
+            spec = self.embedding
+            if self.schema_version != 3 or spec is None or self.local is not None:
+                raise ValueError("embedding requires a schema-3 embedding contract")
+            if self.inputs != ("text",) or self.service_tiers != ("standard",):
+                raise ValueError("embedding supports text and standard tier only")
+            if self.max_output_tokens != 0 or self.temperature != "never":
+                raise ValueError("embedding has no generated tokens or temperature")
+            if self.adapter == "local-embeddings":
+                if (
+                    self.deployment != "embeddings"
+                    or spec.variable_dimensions
+                    or not spec.revision
+                    or not spec.service_definition_digest
+                    or spec.input_types != ("query", "document")
+                    or spec.pooling == "provider"
+                ):
+                    raise ValueError("invalid local embedding identity")
+            elif (
+                spec.revision is not None
+                or spec.service_definition_digest is not None
+                or spec.input_types
+                or spec.query_prefix
+                or spec.pooling != "provider"
+            ):
+                raise ValueError("invalid OpenAI embedding identity")
+        elif self.embedding is not None:
+            raise ValueError("embedding contract requires embedding task")
+        elif self.adapter == "ollama-native":
             if self.schema_version != 2 or self.local is None or self.deployment != "ollama":
                 raise ValueError("ollama-native requires a schema-2 local deployment contract")
             if self.inputs != ("text",) or self.service_tiers != ("standard",):
@@ -146,7 +191,9 @@ class ModelEntry(_Strict):
         value = json.dumps(
             self.model_dump(
                 mode="json",
-                include=set(_V1_FIELDS) | ({"local"} if self.schema_version == 2 else set()),
+                include=set(_V1_FIELDS)
+                | ({"local"} if self.schema_version == 2 else set())
+                | ({"embedding"} if self.schema_version == 3 else set()),
             ),
             sort_keys=True,
             separators=(",", ":"),

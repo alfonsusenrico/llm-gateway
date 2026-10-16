@@ -263,6 +263,10 @@ async def test_catalogue_hides_development_models_from_production_keys(gateway: 
         "openai-gpt-6-luna",
         "ollama-qwen2.5-3b-instruct-q4km-v1",
         "ollama-llama3.2-3b-instruct-q4km-v1",
+        "local-bge-small-en-v1.5-retrieval-v1",
+        "local-minilm-l6-v2-v1",
+        "openai-text-embedding-3-small",
+        "openai-text-embedding-3-large",
     }
     assert set(dev_models) == {*prod_models, "stub-echo"}
     luna = prod_models["openai-gpt-6-luna"]

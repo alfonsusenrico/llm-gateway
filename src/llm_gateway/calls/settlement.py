@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import LiteralString
+from typing import TYPE_CHECKING, Any, LiteralString
 
 from psycopg import AsyncConnection
 from psycopg_pool import AsyncConnectionPool
@@ -13,8 +13,12 @@ from llm_gateway.calls.budget import check_budget_thresholds
 from llm_gateway.calls.records import CALL_COLUMNS, CallRecord, CallState, check_transition
 from llm_gateway.catalogue.model import Catalogue, catalogue_tier
 from llm_gateway.catalogue.pricing import TokenUsage, cost_micro_usd
+from llm_gateway.money import format_usd
 from llm_gateway.notifier.events import dedupe_key, raise_alert
 from llm_gateway.settings import Settings
+
+if TYPE_CHECKING:
+    from llm_gateway.llm.results import ResultStore
 
 logger = logging.getLogger(__name__)
 _SELECT_CALL: LiteralString = "SELECT " + CALL_COLUMNS + " FROM calls WHERE call_key = %s"  # noqa: S608  # LiteralString fragments only
@@ -58,6 +62,7 @@ async def settle(
     outcome: Outcome,
     *,
     actor: str,
+    completed_result: tuple[ResultStore, dict[str, Any]] | None = None,
 ) -> CallRecord:
     """Finish an admitted call; alerts for unknown prices and budget thresholds follow commit."""
     unpriced = False
@@ -107,6 +112,12 @@ async def settle(
         )
         await _event(connection, call_key, call.state, outcome.state, charged, actor)
         settled = await _locked_call(connection, call_key)
+        if completed_result is not None:
+            if outcome.state != "completed":
+                raise ValueError("result requires a completed outcome")
+            store, body = completed_result
+            body["cost_usd"] = format_usd(cost) if cost is not None else None
+            await store.save(call_key, body, connection=connection)
     if unpriced:
         await raise_alert(
             pool,

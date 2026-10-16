@@ -55,6 +55,32 @@ class CallResult(_Lenient):
     replayed: bool = False
 
 
+class EmbeddingVector(_Lenient):
+    index: int
+    embedding: list[float]
+
+
+class EmbeddingUsage(_Lenient):
+    input_tokens: int
+    total_tokens: int
+
+
+class EmbeddingResult(_Lenient):
+    provider_call_id: str
+    status: Literal["completed"]
+    provider: str
+    model: str
+    model_alias: str
+    definition_digest: str
+    dimensions: int
+    normalized: bool
+    input_type: Literal["query", "document"] | None
+    data: list[EmbeddingVector]
+    usage: EmbeddingUsage
+    cost_usd: str | None = None
+    replayed: bool = False
+
+
 class Allowance(_Lenient):
     requests_per_minute: int
     concurrency: int

@@ -1,6 +1,6 @@
 [project]
 name = "llm-gateway"
-version = "0.5.0"
+version = "0.6.0"
 description = "Personal LLM gateway: provider calls, failure policy, and cost control for registered projects."
 readme = "README.md"
 license = "MIT"

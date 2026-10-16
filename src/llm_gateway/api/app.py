@@ -20,11 +20,13 @@ from llm_gateway.api.problems import (
 )
 from llm_gateway.api.routes_allocation import GrantDirectory
 from llm_gateway.api.routes_allocation import router as allocation_router
+from llm_gateway.api.routes_embeddings import router as embeddings_router
 from llm_gateway.api.routes_models import router as models_router
 from llm_gateway.api.routes_projects import router as projects_router
 from llm_gateway.api.routes_responses import router as responses_router
 from llm_gateway.catalogue.model import get_catalogue
 from llm_gateway.db.pool import create_pool, database_ready
+from llm_gateway.embeddings.adapter import EmbeddingAdapter
 from llm_gateway.llm.errors import CallRejectedError
 from llm_gateway.llm.ollama_adapter import OllamaAdapter
 from llm_gateway.llm.openai_adapter import CredentialOpenAIAdapter
@@ -78,6 +80,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(allocation_router)
     app.include_router(models_router)
     app.include_router(responses_router)
+    app.include_router(embeddings_router)
 
     @app.middleware("http")
     async def assign_request_id(
@@ -88,7 +91,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         token = request_id_var.set(request_id)
         try:
             if (
-                request.url.path == "/v1/responses"
+                request.url.path in {"/v1/responses", "/v1/embeddings"}
                 and len(await request.body()) > settings.request_max_bytes
             ):
                 response = problem_response(
@@ -127,6 +130,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         providers = {"openai": "adapter_available"}
         if settings.ollama_base_url is not None:
             providers["ollama"] = "adapter_available"
+        if settings.embeddings_base_url is not None:
+            providers["sentence_transformers"] = "adapter_available"
         return JSONResponse(
             {"status": "ready", "revision": settings.app_revision, "providers": providers}
         )
@@ -140,14 +145,30 @@ def create_call_deps(settings: Settings, pool: AsyncConnectionPool) -> CallDeps:
             raise CallRejectedError("provider_credentials_missing")
         return CredentialOpenAIAdapter(credential.secret, settings.llm_call_timeout_seconds)
 
-    adapters: dict[str, Callable[[Credential | None], ProviderAdapter]] = {
+    def openai_embeddings(credential: Credential | None) -> EmbeddingAdapter:
+        if credential is None:
+            raise CallRejectedError("provider_credentials_missing")
+        return EmbeddingAdapter(
+            "https://api.openai.com",
+            settings.llm_call_timeout_seconds,
+            local=False,
+            secret=credential.secret,
+        )
+
+    adapters: dict[str, Callable[[Credential | None], object]] = {
         "stub": lambda _credential: StubAdapter(),
         "openai-responses": openai_adapter,
+        "openai-embeddings": openai_embeddings,
     }
     local_url = settings.ollama_base_url
     if local_url is not None:
         adapters["ollama-native"] = lambda _credential: OllamaAdapter(
             local_url, settings.llm_call_timeout_seconds
+        )
+    embedding_url = settings.embeddings_base_url
+    if embedding_url is not None:
+        adapters["local-embeddings"] = lambda _credential: EmbeddingAdapter(
+            embedding_url, settings.llm_call_timeout_seconds, local=True
         )
     return CallDeps(
         pool=pool,

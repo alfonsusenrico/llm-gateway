@@ -9,7 +9,7 @@ import threading
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 import httpx2
 
@@ -19,6 +19,7 @@ from llm_gateway_client.models import (
     Allocation,
     CallResult,
     Completed,
+    EmbeddingResult,
     Identity,
     ModelDetails,
     ModelSummary,
@@ -215,6 +216,7 @@ class GatewayClient:
         self._limiter = _AsyncLimiter()
         self.responses = _Responses(self)
         self.models = _Models(self)
+        self.embeddings = _Embeddings(self)
 
     async def __aenter__(self) -> GatewayClient:
         return self
@@ -229,7 +231,9 @@ class GatewayClient:
     def concurrency_limit(self) -> int:
         return self._limiter.limit
 
-    async def _post_call(self, body: dict[str, Any]) -> dict[str, Any]:
+    async def _post_call(
+        self, body: dict[str, Any], *, path: str = "/v1/responses"
+    ) -> dict[str, Any]:
         deadline = time.monotonic() + self._policy.max_total_seconds
         attempt = 0
         while True:
@@ -238,7 +242,7 @@ class GatewayClient:
             new_limit = None
             try:
                 response = await self._http.post(
-                    f"{self._base_url}/v1/responses", json=body, headers=self._headers
+                    f"{self._base_url}{path}", json=body, headers=self._headers
                 )
                 new_limit = _concurrency_limit(response)
             except httpx2.TransportError:
@@ -376,6 +380,7 @@ class SyncGatewayClient:
         self._limiter = _SyncLimiter()
         self.responses = _SyncResponses(self)
         self.models = _SyncModels(self)
+        self.embeddings = _SyncEmbeddings(self)
 
     def __enter__(self) -> SyncGatewayClient:
         return self
@@ -386,7 +391,7 @@ class SyncGatewayClient:
     def close(self) -> None:
         self._http.close()
 
-    def _post_call(self, body: dict[str, Any]) -> dict[str, Any]:
+    def _post_call(self, body: dict[str, Any], *, path: str = "/v1/responses") -> dict[str, Any]:
         deadline = time.monotonic() + self._policy.max_total_seconds
         attempt = 0
         while True:
@@ -395,7 +400,7 @@ class SyncGatewayClient:
             new_limit = None
             try:
                 response = self._http.post(
-                    f"{self._base_url}/v1/responses", json=body, headers=self._headers
+                    f"{self._base_url}{path}", json=body, headers=self._headers
                 )
                 new_limit = _concurrency_limit(response)
             except httpx2.TransportError:
@@ -424,6 +429,70 @@ class SyncGatewayClient:
 
     def whoami(self) -> Identity:
         return Identity.model_validate(self._get("/v1/projects/self"))
+
+
+class _Embeddings:
+    def __init__(self, client: GatewayClient) -> None:
+        self._client = client
+
+    async def create(
+        self,
+        *,
+        provider_call_id: str,
+        operation: str,
+        input: str | list[str],
+        model: str | None = None,
+        profile: str | None = None,
+        dimensions: int | None = None,
+        input_type: Literal["query", "document"] | None = None,
+        encoding_format: Literal["float"] = "float",
+    ) -> EmbeddingResult:
+        body = _call_body(
+            provider_call_id,
+            operation,
+            input,
+            {
+                "model": model,
+                "profile": profile,
+                "dimensions": dimensions,
+                "input_type": input_type,
+                "encoding_format": encoding_format,
+            },
+        )
+        return EmbeddingResult.model_validate(
+            await self._client._post_call(body, path="/v1/embeddings")
+        )
+
+
+class _SyncEmbeddings:
+    def __init__(self, client: SyncGatewayClient) -> None:
+        self._client = client
+
+    def create(
+        self,
+        *,
+        provider_call_id: str,
+        operation: str,
+        input: str | list[str],
+        model: str | None = None,
+        profile: str | None = None,
+        dimensions: int | None = None,
+        input_type: Literal["query", "document"] | None = None,
+        encoding_format: Literal["float"] = "float",
+    ) -> EmbeddingResult:
+        body = _call_body(
+            provider_call_id,
+            operation,
+            input,
+            {
+                "model": model,
+                "profile": profile,
+                "dimensions": dimensions,
+                "input_type": input_type,
+                "encoding_format": encoding_format,
+            },
+        )
+        return EmbeddingResult.model_validate(self._client._post_call(body, path="/v1/embeddings"))
 
 
 class _Models:

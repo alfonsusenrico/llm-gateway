@@ -92,6 +92,8 @@ class ProfileParameters(_Strict):
     reasoning_effort: str | None = Field(default=None, min_length=1, max_length=32)
     max_output_tokens: int | None = Field(default=None, ge=1, le=128_000)
     temperature: float | None = Field(default=None, ge=0, le=2)
+    dimensions: int | None = Field(default=None, ge=1, le=3072)
+    input_type: Literal["query", "document"] | None = None
 
 
 class ModelProfile(_Strict):

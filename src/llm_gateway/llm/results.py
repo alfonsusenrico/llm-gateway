@@ -6,6 +6,7 @@ import json
 from typing import Any
 
 from cryptography.fernet import Fernet, InvalidToken
+from psycopg import AsyncConnection
 from psycopg_pool import AsyncConnectionPool
 
 
@@ -15,16 +16,24 @@ class ResultStore:
         self._fernet = Fernet(key.encode("ascii"))
         self._retention_seconds = retention_seconds
 
-    async def save(self, call_key: int, body: dict[str, Any]) -> None:
+    async def save(
+        self, call_key: int, body: dict[str, Any], *, connection: AsyncConnection | None = None
+    ) -> None:
         token = self._fernet.encrypt(json.dumps(body, separators=(",", ":")).encode("utf-8"))
-        async with self._pool.connection() as connection:
-            await connection.execute(
-                "INSERT INTO call_results (call_key, encrypted, expires_at) "
-                "VALUES (%s, %s, now() + make_interval(secs => %s)) "
-                "ON CONFLICT (call_key) DO UPDATE SET encrypted = excluded.encrypted, "
-                "expires_at = excluded.expires_at",
-                (call_key, token, self._retention_seconds),
-            )
+        if connection is None:
+            async with self._pool.connection() as own_connection:
+                await self._save(own_connection, call_key, token)
+        else:
+            await self._save(connection, call_key, token)
+
+    async def _save(self, connection: AsyncConnection, call_key: int, token: bytes) -> None:
+        await connection.execute(
+            "INSERT INTO call_results (call_key, encrypted, expires_at) "
+            "VALUES (%s, %s, now() + make_interval(secs => %s)) "
+            "ON CONFLICT (call_key) DO UPDATE SET encrypted = excluded.encrypted, "
+            "expires_at = excluded.expires_at",
+            (call_key, token, self._retention_seconds),
+        )
 
     async def load(self, call_key: int) -> dict[str, Any] | None:
         """The stored body, or None when missing, expired, or unreadable with this key."""
