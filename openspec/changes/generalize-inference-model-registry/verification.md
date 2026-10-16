@@ -4,7 +4,7 @@
 - Branch: `feat/inference-model-registry`, based on `505f6e1`.
 - Approval: owner approved the phased plan and this concrete foundation change.
 - Tested state: implementation working tree, gateway/client version `0.4.0`.
-  Delivery revision and PR are recorded below after publication.
+  Implementation revision: `f89e7ba`. PR: https://github.com/alfonsusenrico/llm-gateway/pull/15.
 - No paid provider calls, server access, deployment, consumer edits, real credential
   registration, or application-database migration was performed.
 
@@ -147,5 +147,9 @@ reencryption tooling is outside this change.
 
 ## Delivery
 
-Implementation checks are complete. Commit/push/PR evidence will be recorded after
-publication. The owner reviews and merges; the agent never merges or deploys.
+Implementation `f89e7ba` is pushed on `feat/inference-model-registry` in
+[PR #15](https://github.com/alfonsusenrico/llm-gateway/pull/15). All 23 tasks are
+complete. The delivery-record follow-up changes only this evidence and task status;
+its full gate passed with 716 tests. Disposable verification containers/network
+were removed; the built image is retained locally. The owner reviews and merges;
+no merge or deployment has occurred.

@@ -129,7 +129,7 @@ supplying provider credentials or implementing its own retry semantics.
   local application artifact against synthetic upstreams/disposable PostgreSQL.
   Record exact revision, passed/failed/not-run results, migration preservation,
   model synchronization and redaction evidence in `verification.md`.
-- [ ] 7.3 Commit on the topic branch only after checks pass; push and open an
+- [x] 7.3 Commit on the topic branch only after checks pass; push and open an
   owner-reviewed PR under project policy. Report its URL, branch/revision,
   verification record and breaking changes; update local project state. Never
   merge, deploy, run paid calls or change the consumer repository.
