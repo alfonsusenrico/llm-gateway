@@ -310,7 +310,11 @@ def _structured_output(
         return None, "empty_output"
     try:
         parsed = json.loads(result.output_text)
-    except ValueError:
+        if resolved.entry.local is not None:
+            # Python's decoder also accepts non-JSON numbers and lone UTF-16
+            # surrogates. Neither can be emitted safely as our JSON result.
+            json.dumps(parsed, allow_nan=False, ensure_ascii=False).encode("utf-8")
+    except (ValueError, RecursionError):
         return None, "invalid_json"
     if not isinstance(parsed, dict):
         return None, "not_json_object"

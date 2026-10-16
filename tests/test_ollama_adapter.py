@@ -164,3 +164,23 @@ async def test_output_limit_reports_incomplete_without_retry() -> None:
     result = await adapter.execute(resolved, request)
     assert isinstance(result, ProviderSuccess)
     assert (result.status, result.incomplete_reason) == ("incomplete", "max_output_tokens")
+
+
+@pytest.mark.parametrize("stream", [False, True])
+async def test_invalid_utf8_native_output_is_unknown(stream: bool) -> None:
+    request, resolved, service, _adapter = prepared()
+    service.output = "\ud800"
+
+    async def handler(outgoing: httpx2.Request) -> httpx2.Response:
+        if outgoing.url.path == "/api/chat":
+            return httpx2.Response(200, content=json.dumps(service.success()).encode() + b"\n")
+        return await service(outgoing)
+
+    adapter = OllamaAdapter("http://local.test", 10, httpx2.MockTransport(handler))
+    if stream:
+        events = [event async for event in adapter.execute_stream(resolved, request)]
+        assert not any(isinstance(event, StreamText) for event in events)
+        result = events[-1]
+    else:
+        result = await adapter.execute(resolved, request)
+    assert isinstance(result, ProviderFailure) and result.category == "execution_unknown"

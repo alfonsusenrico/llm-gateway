@@ -19,6 +19,6 @@ Expected Result: local execution preserves gateway response and certainty contra
 - [x] 3.1 Exercise actual API/client, grants, zero fees, replay and unknown no-reexecution against disposable PostgreSQL; evidence: focused integration checks.
 - [x] 3.2 Run bounded synthetic local-service integration and record source/runtime evidence separately from fakes; no paid call required.
 - [x] 3.3 Run ./scripts/check, strict OpenSpec validation and packaged runtime checks; record outcomes and limitations in verification.md.
-- [ ] 3.4 Report topic branch, review PR and verification record; owner reviews/merges and separately accepts deployment.
+- [x] 3.4 Report topic branch, review PR and verification record; owner reviews/merges and separately accepts deployment. PR: https://github.com/alfonsusenrico/llm-gateway/pull/17.
 
 Expected Result: one reviewable local LLM change; embedding/OCR execution remain independent subsequent changes.

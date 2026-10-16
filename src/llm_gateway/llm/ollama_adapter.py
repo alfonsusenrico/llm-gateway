@@ -69,6 +69,7 @@ def _success(
         or message.get("thinking")
     ):
         raise ValueError("terminal_shape")
+    message["content"].encode("utf-8")
     counts = [body.get("prompt_eval_count"), body.get("eval_count")]
     if any(type(value) is not int or value < 0 for value in counts):
         raise ValueError("usage_shape")
@@ -183,7 +184,7 @@ class OllamaAdapter:
                     return _success(result, resolved)
         except _NOT_SENT:
             return ProviderFailure("connection_not_established", "local_connection_failed")
-        except (httpx2.HTTPError, TimeoutError, ValueError, TypeError):
+        except (httpx2.HTTPError, TimeoutError, ValueError, TypeError, RecursionError):
             return ProviderFailure(
                 "execution_unknown" if sent else "temporary_overload", "local_response_failed"
             )
@@ -252,6 +253,7 @@ class OllamaAdapter:
                             ):
                                 raise ValueError("stream_shape")
                             text = message["content"]
+                            text.encode("utf-8")
                             if text:
                                 parts.append(text)
                                 yield StreamText(text)
@@ -264,7 +266,7 @@ class OllamaAdapter:
                     await response.aclose()
         except _NOT_SENT:
             yield ProviderFailure("connection_not_established", "local_connection_failed")
-        except (httpx2.HTTPError, TimeoutError, ValueError, TypeError):
+        except (httpx2.HTTPError, TimeoutError, ValueError, TypeError, RecursionError):
             yield ProviderFailure(
                 "execution_unknown" if sent else "temporary_overload", "local_stream_failed"
             )

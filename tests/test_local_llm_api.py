@@ -196,6 +196,32 @@ async def test_schema_mismatch_is_completed_and_replayable(local_api: LocalAPI) 
     assert await local_api.ledger() == [("completed", 0, 0, 0)]
 
 
+@pytest.mark.parametrize(
+    "output",
+    ['{"ok":NaN}', '{"ok":"\\ud800"}'],
+    ids=["nonfinite-number", "invalid-unicode"],
+)
+async def test_unsafe_structured_json_remains_completed_and_replayable(
+    local_api: LocalAPI, output: str
+) -> None:
+    local_api.service.output = output
+    options = {
+        "text_format": {
+            "type": "json_schema",
+            "name": "answer",
+            "schema": {"type": "object"},
+            "strict": True,
+        }
+    }
+    response = await local_api.post(**options)
+    assert response.status_code == 200
+    assert response.json()["structured_output_error"] == "invalid_json"
+    assert response.json()["output_json"] is None
+    assert (await local_api.post(**options)).json()["replayed"]
+    assert local_api.service.generations == 1
+    assert await local_api.ledger() == [("completed", 0, 0, 0)]
+
+
 async def test_stream_disconnect_keeps_producer_until_settlement(local_api: LocalAPI) -> None:
     local_api.service.delay = 0.05
     deps = local_api.gateway.app.state.call_deps
