@@ -1,6 +1,6 @@
 [project]
 name = "llm-gateway"
-version = "0.6.0"
+version = "0.7.0"
 description = "Personal LLM gateway: provider calls, failure policy, and cost control for registered projects."
 readme = "README.md"
 license = "MIT"
@@ -15,6 +15,7 @@ dependencies = [
     "httpx2>=2.13.1",
     "jsonschema>=4.26.0",
     "openai>=3.29,<4",
+    "pillow>=12.3,<13",
     "psycopg[binary,pool]>=3.3.6",
     "pydantic-settings>=2.15.0",
     "uvicorn[standard]>=0.54.0",

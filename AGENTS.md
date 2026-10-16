@@ -3,8 +3,8 @@
 ## Purpose and boundaries
 
 The owner's personal AI inference gateway. Projects call its separate LLM, embedding
-and OCR APIs instead of directly managing inference providers. OCR execution is
-introduced in a subsequent approved change.
+and OCR APIs instead of directly managing inference providers. Local inference
+requires GPU execution; bounded CPU support work is allowed.
 
 - **The gateway owns:**
   - encrypted project/provider credentials and local or paid inference execution;
@@ -47,7 +47,8 @@ docker compose run --rm api llm-gateway-admin grants show      # every grant and
 ## Code references
 
 - `src/llm_gateway/api/`: app/lifespan, bearer project authentication, allocation,
-  model discovery, `/v1/responses` and `/v1/embeddings`; RFC 9457 errors in `problems.py`.
+  model discovery, `/v1/responses`, `/v1/embeddings` and `/v1/ocr`; RFC 9457 errors
+  in `problems.py`.
 - `catalogue/`: individual `models/*.json`, dated `prices.json`, strict loaders,
   adapter declarations, executable request schemas and immutable alias bindings.
 - `projects/`: current/historical contracts, versioned registry edits, access
@@ -56,6 +57,8 @@ docker compose run --rm api llm-gateway-admin grants show      # every grant and
   result replay, direct service and detached streaming producers.
 - `embeddings/`: bounded text batches, task schemas, native local/OpenAI adapters,
   vector validation and typed results. Vector storage/search remains in projects.
+- `ocr/`: bounded PNG/JPEG validation, pinned GPU-only native execution and original-pixel
+  text/box results; shared admission, settlement and encrypted replay.
 - `calls/`: admission, settlement/state audit, spend and budget thresholds.
   `allocation/`: deterministic integer policy and locked recomputation.
 - `notifier/events.py`: `raise_alert`, the sole content-free alert entry point;

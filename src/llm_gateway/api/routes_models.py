@@ -91,6 +91,18 @@ async def _summary(deps: CallDeps, entry: ModelEntry, identity: ProjectIdentity)
             "max_input_bytes": entry.embedding.max_input_bytes,
             "max_batch_tokens": entry.embedding.max_batch_tokens,
         }
+    if entry.ocr is not None:
+        capabilities = entry.ocr.model_dump(mode="json")
+        limits = {
+            name: getattr(entry.ocr, name)
+            for name in (
+                "max_image_bytes",
+                "max_pixels",
+                "max_side",
+                "max_blocks",
+                "max_text_bytes",
+            )
+        }
     return ModelSummary(
         alias=entry.alias,
         task=entry.task,

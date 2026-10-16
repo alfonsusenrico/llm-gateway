@@ -265,6 +265,7 @@ async def test_catalogue_hides_development_models_from_production_keys(gateway: 
         "ollama-llama3.2-3b-instruct-q4km-v1",
         "local-bge-small-en-v1.5-retrieval-v1",
         "local-minilm-l6-v2-v1",
+        "local-rapidocr-ppocrv4-v1",
         "openai-text-embedding-3-small",
         "openai-text-embedding-3-large",
     }

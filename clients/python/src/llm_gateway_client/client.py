@@ -23,6 +23,7 @@ from llm_gateway_client.models import (
     Identity,
     ModelDetails,
     ModelSummary,
+    OcrResult,
     RefusalDelta,
     Started,
     StreamEvent,
@@ -217,6 +218,7 @@ class GatewayClient:
         self.responses = _Responses(self)
         self.models = _Models(self)
         self.embeddings = _Embeddings(self)
+        self.ocr = _Ocr(self)
 
     async def __aenter__(self) -> GatewayClient:
         return self
@@ -381,6 +383,7 @@ class SyncGatewayClient:
         self.responses = _SyncResponses(self)
         self.models = _SyncModels(self)
         self.embeddings = _SyncEmbeddings(self)
+        self.ocr = _SyncOcr(self)
 
     def __enter__(self) -> SyncGatewayClient:
         return self
@@ -493,6 +496,64 @@ class _SyncEmbeddings:
             },
         )
         return EmbeddingResult.model_validate(self._client._post_call(body, path="/v1/embeddings"))
+
+
+class _Ocr:
+    def __init__(self, client: GatewayClient) -> None:
+        self._client = client
+
+    async def create(
+        self,
+        *,
+        provider_call_id: str,
+        operation: str,
+        media_type: Literal["image/png", "image/jpeg"],
+        data_base64: str,
+        model: str | None = None,
+        profile: str | None = None,
+    ) -> OcrResult:
+        body = {
+            k: v
+            for k, v in dict(
+                provider_call_id=provider_call_id,
+                operation=operation,
+                media_type=media_type,
+                data_base64=data_base64,
+                model=model,
+                profile=profile,
+            ).items()
+            if v is not None
+        }
+        return OcrResult.model_validate(await self._client._post_call(body, path="/v1/ocr"))
+
+
+class _SyncOcr:
+    def __init__(self, client: SyncGatewayClient) -> None:
+        self._client = client
+
+    def create(
+        self,
+        *,
+        provider_call_id: str,
+        operation: str,
+        media_type: Literal["image/png", "image/jpeg"],
+        data_base64: str,
+        model: str | None = None,
+        profile: str | None = None,
+    ) -> OcrResult:
+        body = {
+            k: v
+            for k, v in dict(
+                provider_call_id=provider_call_id,
+                operation=operation,
+                media_type=media_type,
+                data_base64=data_base64,
+                model=model,
+                profile=profile,
+            ).items()
+            if v is not None
+        }
+        return OcrResult.model_validate(self._client._post_call(body, path="/v1/ocr"))
 
 
 class _Models:

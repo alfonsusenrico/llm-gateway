@@ -81,6 +81,30 @@ class EmbeddingResult(_Lenient):
     replayed: bool = False
 
 
+class OcrBlock(_Lenient):
+    text: str
+    confidence: float
+    box: list[list[float]]
+
+
+class OcrResult(_Lenient):
+    provider_call_id: str
+    status: Literal["completed"]
+    provider: str
+    model: str
+    model_alias: str
+    definition_digest: str
+    media_type: Literal["image/png", "image/jpeg"]
+    width: int
+    height: int
+    coordinate_system: Literal["original_image_pixels"]
+    exif_rotation: Literal[False]
+    text: str
+    blocks: list[OcrBlock]
+    cost_usd: str | None = None
+    replayed: bool = False
+
+
 class Allowance(_Lenient):
     requests_per_minute: int
     concurrency: int
@@ -156,6 +180,13 @@ def image(
     if detail is not None:
         part["detail"] = detail
     return part
+
+
+def ocr_image(
+    data: bytes | str | Path, media_type: Literal["image/png", "image/jpeg"]
+) -> dict[str, Any]:
+    """Encode local bytes or a local path for the gateway's single-image OCR API."""
+    return {"media_type": media_type, "data_base64": base64.b64encode(_bytes(data)).decode("ascii")}
 
 
 def pdf(data: bytes | str | Path, filename: str) -> dict[str, Any]:

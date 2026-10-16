@@ -156,3 +156,12 @@ extra cost.
 Tests run from the gateway repository with `./scripts/check`. The contract
 tests in `tests/test_client_contract.py` exercise this client against the real
 gateway application.
+
+### OCR (gateway/client 0.7.0)
+
+Use `client.ocr.create(provider_call_id=..., operation=..., model=...,
+**ocr_image("example.png", "image/png"))` with `ocr_image` imported from
+`llm_gateway_client`. Sync and async clients return `OcrResult` with text,
+confidence, quadrilateral boxes and original image dimensions. The helper reads
+local bytes/files on the client. See the [OCR contract](../../docs/ocr.md) for
+limits, GPU requirements, profiles, accounting and recovery.

@@ -1,0 +1,47 @@
+{
+  "schema_version": 4,
+  "alias": "local-rapidocr-ppocrv4-v1",
+  "task": "ocr",
+  "adapter": "local-ocr",
+  "deployment": "ocr",
+  "execution": "local",
+  "billing": "zero",
+  "provider": "rapidocr",
+  "model": "rapidocr-ppocrv4-v1",
+  "context_window_tokens": 0,
+  "max_output_tokens": 0,
+  "temperature": "never",
+  "inputs": [
+    "image"
+  ],
+  "service_tiers": [
+    "standard"
+  ],
+  "development_only": false,
+  "streaming": false,
+  "structured_output": false,
+  "prompt_cache": false,
+  "ocr": {
+    "protocol": "rapidocr-gpu-native-v1",
+    "service_definition_digest": "9ec0a692d426991943b38cfed4289c18774851905fee52469153eb50caf03231",
+    "engine": "rapidocr-onnxruntime",
+    "engine_version": "1.4.4",
+    "runtime": "onnxruntime-gpu",
+    "runtime_version": "1.20.2",
+    "media_types": [
+      "image/png",
+      "image/jpeg"
+    ],
+    "max_image_bytes": 8000000,
+    "max_pixels": 12000000,
+    "max_side": 4096,
+    "max_blocks": 2048,
+    "max_text_bytes": 1000000,
+    "coordinate_system": "original_image_pixels",
+    "exif_rotation": false
+  },
+  "documentation": [
+    "https://rapidai.github.io/RapidOCRDocs/v1.4.4/install_usage/api/RapidOCR/",
+    "https://onnxruntime.ai/docs/api/python/api_summary.html"
+  ]
+}

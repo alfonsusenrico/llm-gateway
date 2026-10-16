@@ -44,7 +44,9 @@ async def _details(calls: Calls, path: str = "/v1/models", environment: str = "d
 
 async def test_discovery_fields_schemas_and_task_filtering(calls: Calls) -> None:
     assert (await calls.gateway.client.get("/v1/models")).status_code == 401
-    assert (await _details(calls, "/v1/models?task=ocr")).json() == {"models": []}
+    ocr = (await _details(calls, "/v1/models?task=ocr")).json()["models"]
+    assert [m["alias"] for m in ocr] == ["local-rapidocr-ppocrv4-v1"]
+    assert ocr[0]["availability"]["reason"] == "provider_not_configured"
     embeddings = (await _details(calls, "/v1/models?task=embedding")).json()["models"]
     assert len(embeddings) == 4 and all(m["task"] == "embedding" for m in embeddings)
     assert (await _details(calls, "/v1/catalogue")).status_code == 404
