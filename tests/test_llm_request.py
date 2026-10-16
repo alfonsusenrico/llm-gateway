@@ -1,17 +1,17 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
 import pytest
 from pydantic import ValidationError
 
-from llm_gateway.catalogue.model import DATA_DIR, get_catalogue, load_catalogue
+from llm_gateway.catalogue.model import get_catalogue, load_catalogue
 from llm_gateway.llm.errors import CallRejectedError
 from llm_gateway.llm.request import ResponseRequest
 from llm_gateway.llm.resolve import default_cache_key, resolve
 from llm_gateway.projects.contract import parse_contract
+from tests.test_catalogue import _base, _files
 from tests.test_contract import contract_data
 
 CONTRACT = parse_contract(contract_data())
@@ -46,7 +46,7 @@ def _code(raised: pytest.ExceptionInfo[CallRejectedError]) -> str:
 @pytest.mark.parametrize(
     "overrides",
     [
-        {"model": {"provider": "openai", "model": "gpt-6-luna"}},  # both profile and model
+        {"model": "openai-gpt-6-luna"},  # both profile and model
         {"profile": None},  # neither
         {"text_format": {"type": "json_schema", "name": "x"}},  # schema missing
         {"text_format": {"type": "text", "name": "x"}},  # schema fields on text
@@ -96,7 +96,7 @@ def test_profile_settings_resolve_with_request_overrides() -> None:
 
 
 def test_model_reference_uses_the_default_output_limit() -> None:
-    resolved = _resolve(_request(profile=None, model={"provider": "openai", "model": "gpt-6-luna"}))
+    resolved = _resolve(_request(profile=None, model="openai-gpt-6-luna"))
 
     assert resolved.max_output_tokens == 4096
 
@@ -106,11 +106,11 @@ def test_model_reference_uses_the_default_output_limit() -> None:
     [
         ({"profile": "missing"}, "profile_not_found"),
         (
-            {"profile": None, "model": {"provider": "openai", "model": "gpt-9"}},
+            {"profile": None, "model": "openai-gpt-9"},
             "model_not_in_catalogue",
         ),
         (
-            {"profile": None, "model": {"provider": "stub", "model": "stub-echo"}},
+            {"profile": None, "model": "stub-echo"},
             "stub_not_allowed",
         ),
         ({"temperature": 0.5}, "invalid_model_settings"),  # luna with effort low
@@ -133,7 +133,7 @@ def test_temperature_with_effort_none_is_accepted() -> None:
 
 def test_stub_is_allowed_for_development_keys() -> None:
     resolved = _resolve(
-        _request(profile=None, model={"provider": "stub", "model": "stub-echo"}),
+        _request(profile=None, model="stub-echo"),
         environment="development",
     )
 
@@ -141,10 +141,9 @@ def test_stub_is_allowed_for_development_keys() -> None:
 
 
 def test_input_type_the_model_does_not_accept(tmp_path: Path) -> None:
-    models = json.loads((DATA_DIR / "models.json").read_text())
+    models = _base("models.json")
     models["models"][0]["inputs"] = ["text"]
-    (tmp_path / "models.json").write_text(json.dumps(models))
-    catalogue = load_catalogue(tmp_path / "models.json", DATA_DIR / "prices.json")
+    catalogue = load_catalogue(*_files(tmp_path, models=models))
     image = {"type": "input_image", "media_type": "image/png", "data_base64": "aGVsbG8="}
 
     with pytest.raises(CallRejectedError) as raised:
@@ -157,3 +156,7 @@ def test_long_cache_keys_are_hashed_to_64_characters() -> None:
     key = default_cache_key("p" * 40, "o" * 40)
 
     assert len(key) == 64 and key.startswith("h:")
+
+
+def test_fingerprint_preserves_explicit_parameter_presence() -> None:
+    assert _request(reasoning_effort=None).fingerprint() != _request().fingerprint()

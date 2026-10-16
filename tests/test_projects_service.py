@@ -187,10 +187,10 @@ async def test_a_model_removed_from_the_catalogue_never_blocks_other_edits(
     assert updated.status == "disabled"
 
     def touch_chat(contract: dict[str, Any]) -> dict[str, Any]:
-        contract["profiles"]["chat"]["max_output_tokens"] = 900
+        contract["profiles"]["chat"]["parameters"]["max_output_tokens"] = 900
         return contract
 
-    with pytest.raises(ContractError, match="retired-model is not in the catalogue"):
+    with pytest.raises(ContractError, match="alias is not registered"):
         await service.update_contract(
             migrated_pool, "personal_agent", touch_chat, actor="t", note="touch"
         )

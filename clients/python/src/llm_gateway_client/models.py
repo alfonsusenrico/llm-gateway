@@ -16,10 +16,10 @@ class _Lenient(BaseModel):
 
 
 class Usage(_Lenient):
-    input_tokens: int
-    cached_input_tokens: int = 0
-    cache_write_tokens: int = 0
-    output_tokens: int
+    input_tokens: int | None
+    cached_input_tokens: int | None = 0
+    cache_write_tokens: int | None = 0
+    output_tokens: int | None
     reasoning_tokens: int | None = None
 
 
@@ -38,6 +38,8 @@ class CallResult(_Lenient):
     status: Literal["completed", "incomplete"]
     provider: str
     model: str
+    model_alias: str
+    definition_digest: str
     service_tier: str | None = None
     output_text: str | None = None
     output_json: dict[str, Any] | None = None
@@ -75,18 +77,27 @@ class Allocation(_Lenient):
     profiles: list[str]
 
 
-class CatalogueModel(_Lenient):
+class ModelAvailability(_Lenient):
+    configured: bool
+    reason: str | None = None
+
+
+class ModelSummary(_Lenient):
+    alias: str
+    task: Literal["llm", "embedding", "ocr"]
     provider: str
     model: str
-    context_window_tokens: int
-    max_output_tokens: int
-    reasoning_efforts: list[str]
-    default_reasoning_effort: str | None = None
-    temperature: str
-    inputs: list[str]
-    service_tiers: list[str]
-    function_tools: bool = False
-    prices: dict[str, dict[str, Any]]
+    definition_digest: str
+    execution: str
+    billing: str
+    limits: dict[str, int]
+    capabilities: dict[str, Any]
+    prices: dict[str, Any]
+    availability: ModelAvailability
+
+
+class ModelDetails(ModelSummary):
+    request_schema: dict[str, Any]
 
 
 class Identity(_Lenient):

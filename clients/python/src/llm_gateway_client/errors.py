@@ -30,6 +30,10 @@ INVALID_REQUEST_CODES = frozenset(
         "stub_not_allowed",
         "not_found",
         "method_not_allowed",
+        "model_not_found",
+        "model_task_mismatch",
+        "credential_changed",
+        "call_configuration_changed",
     }
 )
 AUTHENTICATION_CODES = frozenset(
@@ -45,6 +49,10 @@ UNAVAILABLE_CODES = frozenset(
         "price_unavailable",
         "dependency_unavailable",
         "internal_error",
+        "model_registry_unavailable",
+        "provider_credentials_missing",
+        "provider_credentials_unreadable",
+        "contract_upgrade_required",
     }
 )
 KNOWN_CODES = (

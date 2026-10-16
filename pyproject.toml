@@ -1,6 +1,6 @@
 [project]
 name = "llm-gateway"
-version = "0.1.0"
+version = "0.4.0"
 description = "Personal LLM gateway: provider calls, failure policy, and cost control for registered projects."
 readme = "README.md"
 license = "MIT"
@@ -13,6 +13,7 @@ dependencies = [
     "cryptography>=46",
     "fastapi>=0.143.0",
     "httpx2>=2.13.1",
+    "jsonschema>=4.26.0",
     "openai>=3.29,<4",
     "psycopg[binary,pool]>=3.3.6",
     "pydantic-settings>=2.15.0",
@@ -44,6 +45,7 @@ llm-gateway-client = { workspace = true }
 
 [tool.ruff]
 line-length = 100
+extend-include = ["scripts/setup-local"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "S", "SIM", "RUF"]

@@ -1,24 +1,64 @@
-#!/usr/bin/env bash
-# Create a local .env from .env.example with generated local secrets; never overwrites.
-set -euo pipefail
-cd "$(dirname "$0")/.."
+#!/usr/bin/env python3
+"""Create local settings or add the dedicated credential encryption key without displaying secrets."""
 
-if [[ -e .env ]]; then
-  echo ".env already exists; leaving it unchanged."
-  exit 0
-fi
+import base64
+import os
+import re
+import secrets
+import sys
+from pathlib import Path
 
-password="$(python3 -c 'import secrets; print(secrets.token_urlsafe(24))')"
-pepper="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
-# A Fernet key is the padded urlsafe base64 of 32 random bytes.
-result_key="$(python3 -c 'import base64, os; print(base64.urlsafe_b64encode(os.urandom(32)).decode())')"
-port="54330"
-umask 077
-sed \
-  -e "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=${password}|" \
-  -e "s|^PROJECT_KEY_PEPPER=.*|PROJECT_KEY_PEPPER=${pepper}|" \
-  -e "s|^RESULT_ENCRYPTION_KEY=.*|RESULT_ENCRYPTION_KEY=${result_key}|" \
-  -e "s|^DATABASE_URL=.*|DATABASE_URL=postgresql://llm_gateway:${password}@127.0.0.1:${port}/llm_gateway|" \
-  -e "s|^TEST_DATABASE_URL=.*|TEST_DATABASE_URL=postgresql://llm_gateway:${password}@127.0.0.1:${port}/llm_gateway|" \
-  .env.example > .env
-echo "Created .env with a generated database password and key pepper."
+ROOT = Path(__file__).resolve().parent.parent
+
+
+def fernet_key() -> str:
+    return base64.urlsafe_b64encode(secrets.token_bytes(32)).decode()
+
+
+def main() -> int:
+    target = ROOT / ".env"
+    if target.is_symlink():
+        print("Refusing to replace a symbolic-link settings file.", file=sys.stderr)
+        return 1
+    if target.exists():
+        content = target.read_text()
+        match = re.search(r"^PROVIDER_CREDENTIAL_ENCRYPTION_KEY=([^\n]*)", content, re.M)
+        if match and match.group(1).split("#", 1)[0].strip():
+            print("Local settings already contain the credential encryption setting.")
+            return 0
+        line = "PROVIDER_CREDENTIAL_ENCRYPTION_KEY=" + fernet_key()
+        if match:
+            content = content[: match.start()] + line + content[match.end() :]
+        else:
+            content = content.rstrip("\n") + "\n" + line + "\n"
+        message = "Added the credential encryption setting; existing settings preserved."
+    else:
+        password = secrets.token_urlsafe(24)
+        values = {
+            "POSTGRES_PASSWORD": password,
+            "PROJECT_KEY_PEPPER": secrets.token_urlsafe(32),
+            "RESULT_ENCRYPTION_KEY": fernet_key(),
+            "PROVIDER_CREDENTIAL_ENCRYPTION_KEY": fernet_key(),
+            "DATABASE_URL": f"postgresql://llm_gateway:{password}@127.0.0.1:54330/llm_gateway",
+            "TEST_DATABASE_URL": f"postgresql://llm_gateway:{password}@127.0.0.1:54330/llm_gateway",
+        }
+        content = (ROOT / ".env.example").read_text()
+        for name, value in values.items():
+            content = re.sub(
+                r"^" + name + r"=.*$",
+                lambda _match, name=name, value=value: name + "=" + value,
+                content,
+                flags=re.M,
+            )
+        message = "Created .env with generated local secrets."
+    temporary = ROOT / (".env.setup-" + secrets.token_hex(8))
+    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(descriptor, "w") as stream:
+        stream.write(content)
+    os.replace(temporary, target)
+    print(message)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

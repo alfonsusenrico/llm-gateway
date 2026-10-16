@@ -43,8 +43,7 @@ class Settings(BaseSettings):
 
     # A provider call's deadline; an admitted call's lease adds a minute to it.
     llm_call_timeout_seconds: int = Field(default=180, ge=10, le=900)
-    # Unset leaves OpenAI calls refused with provider_not_configured.
-    openai_api_key: SecretStr | None = None
+    provider_credential_encryption_key: SecretStr
     # Fernet key for stored call results; changing it makes stored results expire.
     result_encryption_key: SecretStr
     result_retention_seconds: int = Field(default=86_400, ge=3_600, le=604_800)
@@ -66,9 +65,9 @@ class Settings(BaseSettings):
     notifier_dedupe_window_seconds: int = Field(default=900, ge=60, le=86_400)
     notifier_max_event_age_seconds: int = Field(default=86_400, ge=3_600, le=604_800)
 
-    @field_validator("result_encryption_key")
+    @field_validator("result_encryption_key", "provider_credential_encryption_key")
     @classmethod
-    def _result_key_is_fernet(cls, value: SecretStr) -> SecretStr:
+    def _encryption_key_is_fernet(cls, value: SecretStr) -> SecretStr:
         Fernet(value.get_secret_value().encode("ascii"))
         return value
 
@@ -94,6 +93,10 @@ def load_settings() -> Settings:
     except ValidationError as exc:
         names = sorted({str(error["loc"][0]).upper() for error in exc.errors() if error["loc"]})
         raise SettingsError(f"Invalid or missing settings: {', '.join(names)}") from None
+    if settings.provider_credential_encryption_key == settings.result_encryption_key:
+        raise SettingsError(
+            "PROVIDER_CREDENTIAL_ENCRYPTION_KEY must differ from RESULT_ENCRYPTION_KEY"
+        )
     if settings.db_pool_min_size > settings.db_pool_max_size:
         raise SettingsError("Invalid settings: DB_POOL_MIN_SIZE exceeds DB_POOL_MAX_SIZE")
     if (settings.notifier_telegram_bot_token is None) != (

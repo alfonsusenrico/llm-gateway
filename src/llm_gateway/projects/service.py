@@ -18,8 +18,10 @@ from llm_gateway.projects.contract import (
     ENVIRONMENTS,
     ContractError,
     ContractV1,
+    ContractV2,
     Environment,
     parse_contract,
+    parse_historical_contract,
 )
 from llm_gateway.projects.keys import IssuedKey, issue_key
 
@@ -59,7 +61,7 @@ class KeyInfo:
 
 
 async def register_project(
-    pool: AsyncConnectionPool, contract: ContractV1, *, actor: str, pepper: bytes
+    pool: AsyncConnectionPool, contract: ContractV2, *, actor: str, pepper: bytes
 ) -> list[IssuedKey]:
     """Store version 1 and issue one key per environment; return the keys to show once."""
     _check_changed_profiles({}, contract)
@@ -85,7 +87,7 @@ async def update_contract(
     *,
     actor: str,
     note: str,
-) -> ContractV1:
+) -> ContractV2:
     """Apply `change` to the current contract and store the result as a new version.
 
     The project row is locked, so concurrent edits become consecutive versions.
@@ -114,7 +116,7 @@ async def update_contract(
 
 async def import_contract(
     pool: AsyncConnectionPool, data: object, *, actor: str, note: str
-) -> ContractV1:
+) -> ContractV2:
     contract = parse_contract(data)
     return await update_contract(
         pool, contract.project_id, lambda _current: contract.to_json(), actor=actor, note=note
@@ -123,7 +125,7 @@ async def import_contract(
 
 async def get_contract(
     pool: AsyncConnectionPool, project_id: str, version: int | None = None
-) -> tuple[ContractV1, int]:
+) -> tuple[ContractV1 | ContractV2, int]:
     async with pool.connection() as connection:
         if version is None:
             cursor = await connection.execute(
@@ -134,7 +136,7 @@ async def get_contract(
                 raise ProjectNotFoundError(f"Project {project_id} is not registered.")
             version = int(row[0])
         data = await _contract_json(connection, project_id, version)
-    return parse_contract(data), version
+    return parse_historical_contract(data), version
 
 
 async def list_projects(pool: AsyncConnectionPool) -> list[ProjectSummary]:
@@ -227,7 +229,7 @@ def _previous_profiles(current: dict[str, Any]) -> dict[str, Any]:
         return {}
 
 
-def _check_changed_profiles(before: dict[str, Any], after: ContractV1) -> None:
+def _check_changed_profiles(before: dict[str, Any], after: ContractV2) -> None:
     """Check new or changed profiles against the catalogue.
 
     Unchanged profiles are not rechecked, so a later catalogue change never
@@ -258,7 +260,7 @@ async def _contract_json(
 
 
 async def _insert_version(
-    connection: AsyncConnection, contract: ContractV1, version: int, actor: str, note: str
+    connection: AsyncConnection, contract: ContractV2, version: int, actor: str, note: str
 ) -> None:
     await connection.execute(
         "INSERT INTO contract_versions (project_id, version, contract, actor, change_note) "
@@ -273,3 +275,36 @@ async def _insert_key(connection: AsyncConnection, project_id: str, key: IssuedK
         "VALUES (%s, %s, %s, %s)",
         (key.key_id, project_id, key.environment, key.secret_hmac),
     )
+
+
+async def upgrade_contract(pool: AsyncConnectionPool, project_id: str, *, actor: str) -> bool:
+    """Append the alias-backed document; historical versions and access keys stay intact."""
+    async with pool.connection() as connection, connection.transaction():
+        cursor = await connection.execute(
+            "SELECT current_version FROM projects WHERE project_id = %s FOR UPDATE", (project_id,)
+        )
+        row = await cursor.fetchone()
+        if row is None:
+            raise ProjectNotFoundError("Project is not registered.")
+        version = int(row[0])
+        current = parse_historical_contract(await _contract_json(connection, project_id, version))
+        if isinstance(current, ContractV2):
+            return False
+        catalogue = get_catalogue()
+        profiles = {}
+        for name, profile in current.profiles.items():
+            aliases = catalogue.aliases_for(profile.provider, profile.model)
+            if len(aliases) != 1:
+                raise RegistryError(f"Profile {name} has no unique model alias mapping.")
+            parameters = profile.model_dump(exclude={"provider", "model"}, exclude_none=True)
+            profiles[name] = {"model": aliases[0], "parameters": parameters}
+        data = current.to_json()
+        data.update(contract_version=2, profiles=profiles)
+        upgraded = parse_contract(data)
+        _check_changed_profiles({}, upgraded)
+        await _insert_version(connection, upgraded, version + 1, actor, "upgrade contract schema")
+        await connection.execute(
+            "UPDATE projects SET current_version = %s, updated_at = now() WHERE project_id = %s",
+            (version + 1, project_id),
+        )
+        return True

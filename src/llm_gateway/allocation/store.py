@@ -16,7 +16,7 @@ from psycopg_pool import AsyncConnectionPool
 from llm_gateway.allocation.policy import Grant, PairRequest, Pool, Reason, allocate
 from llm_gateway.money import format_usd, to_micro_usd
 from llm_gateway.notifier.events import dedupe_key, raise_alert
-from llm_gateway.projects.contract import ENVIRONMENTS, ContractError, parse_contract
+from llm_gateway.projects.contract import ENVIRONMENTS, ContractError, parse_historical_contract
 from llm_gateway.settings import Settings
 
 # Serializes recomputes across processes; an arbitrary constant owned by this module.
@@ -67,7 +67,7 @@ async def _read_requests(connection: AsyncConnection) -> list[PairRequest]:
     pairs = []
     for project_id, weight, data in await cursor.fetchall():
         try:
-            contract = parse_contract(data)
+            contract = parse_historical_contract(data)
         except ContractError:
             continue  # Quarantined projects take no share; the API alerts about them.
         if contract.status != "active":

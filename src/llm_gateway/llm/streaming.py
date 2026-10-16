@@ -12,6 +12,7 @@ import json
 import logging
 import time
 from collections.abc import AsyncGenerator
+from contextlib import aclosing
 from dataclasses import dataclass
 from typing import Any
 
@@ -35,7 +36,7 @@ from llm_gateway.llm.service import (
     replay_body,
     tool_call_body,
 )
-from llm_gateway.projects.contract import ContractV1
+from llm_gateway.projects.contract import ContractV2
 
 logger = logging.getLogger(__name__)
 KEEP_ALIVE_SECONDS = 15.0
@@ -94,28 +95,29 @@ async def _produce(
     accepted = False
     result: ProviderSuccess | ProviderFailure | None = None
     try:
-        async for event in prepared.adapter.execute_stream(prepared.resolved, request):
-            if isinstance(event, StreamStarted):
-                accepted = True
-                await channel.put(
-                    (
-                        "response.started",
-                        {
-                            "provider_call_id": request.provider_call_id,
-                            "provider": prepared.resolved.provider,
-                            "model": prepared.resolved.model,
-                        },
+        async with aclosing(prepared.adapter.execute_stream(prepared.resolved, request)) as events:
+            async for event in events:
+                if isinstance(event, StreamStarted):
+                    accepted = True
+                    await channel.put(
+                        (
+                            "response.started",
+                            {
+                                "provider_call_id": request.provider_call_id,
+                                "provider": prepared.resolved.provider,
+                                "model": prepared.resolved.model,
+                            },
+                        )
                     )
-                )
-            elif isinstance(event, StreamText):
-                await channel.put(("text.delta", {"delta": event.delta}))
-            elif isinstance(event, StreamRefusal):
-                await channel.put(("refusal.delta", {"delta": event.delta}))
-            elif isinstance(event, FunctionCall):
-                await channel.put(("tool_call", tool_call_body(event)))
-            else:
-                result = event
-                break
+                elif isinstance(event, StreamText):
+                    await channel.put(("text.delta", {"delta": event.delta}))
+                elif isinstance(event, StreamRefusal):
+                    await channel.put(("refusal.delta", {"delta": event.delta}))
+                elif isinstance(event, FunctionCall):
+                    await channel.put(("tool_call", tool_call_body(event)))
+                else:
+                    result = event
+                    break
     except Exception as exc:  # an adapter defect; the call may have run
         logger.error("Adapter stream failed unexpectedly: %s", type(exc).__name__)
         result = ProviderFailure("execution_unknown", "adapter_error")
@@ -141,7 +143,7 @@ async def start_stream(
     *,
     project_id: str,
     environment: str,
-    contract: ContractV1,
+    contract: ContractV2,
     request: ResponseRequest,
     request_bytes: int,
 ) -> StreamPlan:

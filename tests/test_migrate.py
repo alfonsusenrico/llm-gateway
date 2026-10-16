@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import LiteralString
 
 import psycopg
 import pytest
@@ -124,3 +125,59 @@ def test_failed_migration_is_rolled_back_and_not_recorded(
 
     assert [table for (table,) in tables] == ["schema_migrations"]
     assert recorded == (0,)
+
+
+@pytest.mark.db
+def test_inference_migrations_preserve_legacy_calls_results_keys_and_contracts(
+    test_database_url: str, isolated_schema: str
+) -> None:
+    from cryptography.fernet import Fernet
+    from psycopg.types.json import Jsonb
+
+    from tests.conftest import TEST_RESULT_KEY
+    from tests.test_contract import contract_data
+
+    migrations = discover(MIGRATIONS_DIR)
+    legacy = contract_data(contract_version=1, profiles={})
+    encrypted = Fernet(TEST_RESULT_KEY.encode()).encrypt(b'{"synthetic":"retained-result"}')
+    with _connect(test_database_url, isolated_schema) as connection:
+        apply_migrations(connection, [m for m in migrations if m.version <= "0005"])
+        connection.execute(
+            "INSERT INTO projects (project_id, current_version, weight) VALUES ('personal_agent', 1, 3)"
+        )
+        connection.execute(
+            "INSERT INTO contract_versions (project_id, version, contract, actor, change_note) VALUES ('personal_agent', 1, %s, 'test', 'legacy')",
+            (Jsonb(legacy),),
+        )
+        connection.execute(
+            "INSERT INTO project_keys (key_id, project_id, environment, secret_hmac) VALUES ('aaaaaaaaaaaa', 'personal_agent', 'production', %s)",
+            ("a" * 64,),
+        )
+        row = connection.execute(
+            "INSERT INTO calls (project_id, environment, provider_call_id, request_fingerprint, operation, provider, model, service_tier_requested, state, reserved_micro_usd, charged_micro_usd) VALUES ('personal_agent', 'production', 'legacy-call', %s, 'demo', 'openai', 'gpt-6-luna', 'standard', 'execution_unknown', 520, 520) RETURNING call_key",
+            ("b" * 64,),
+        ).fetchone()
+        assert row is not None
+        connection.execute(
+            "INSERT INTO call_events (call_key, to_state, charged_micro_usd, actor) VALUES (%s, 'execution_unknown', 520, 'test')",
+            row,
+        )
+        connection.execute(
+            "INSERT INTO call_results (call_key, encrypted, expires_at) VALUES (%s, %s, now() + interval '24 hours')",
+            (row[0], encrypted),
+        )
+        queries: list[LiteralString] = [
+            "SELECT projects::text FROM projects",
+            "SELECT contract_versions::text FROM contract_versions",
+            "SELECT project_keys::text FROM project_keys",
+            "SELECT call_events::text FROM call_events",
+            "SELECT call_results::text FROM call_results",
+            "SELECT request_fingerprint, state, reserved_micro_usd, charged_micro_usd FROM calls",
+        ]
+        snapshots = [connection.execute(query).fetchall() for query in queries]
+        assert apply_migrations(connection, migrations) == ["0006", "0007", "0008"]
+        assert [connection.execute(query).fetchall() for query in queries] == snapshots
+        assert connection.execute(
+            "SELECT request_schema_version, task, model_alias, definition_digest, settings_digest, credential_revision, billing_kind FROM calls"
+        ).fetchone() == (1, "llm", None, None, None, None, None)
+        assert apply_migrations(connection, migrations) == []

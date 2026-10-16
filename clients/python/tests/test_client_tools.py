@@ -35,6 +35,8 @@ RESULT = {
     "status": "completed",
     "provider": "stub",
     "model": "stub-echo",
+    "model_alias": "stub-echo",
+    "definition_digest": "a" * 64,
     "output_text": "",
     "tool_calls": [CALL],
     "continuation": CONTINUATION,

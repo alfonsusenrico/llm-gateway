@@ -3,13 +3,14 @@ from __future__ import annotations
 import pytest
 
 from llm_gateway.settings import SettingsError, load_settings
-from tests.conftest import TEST_PEPPER, TEST_RESULT_KEY
+from tests.conftest import TEST_CREDENTIAL_KEY, TEST_PEPPER, TEST_RESULT_KEY
 
 
 @pytest.fixture(autouse=True)
 def _pepper(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PROJECT_KEY_PEPPER", TEST_PEPPER)
     monkeypatch.setenv("RESULT_ENCRYPTION_KEY", TEST_RESULT_KEY)
+    monkeypatch.setenv("PROVIDER_CREDENTIAL_ENCRYPTION_KEY", TEST_CREDENTIAL_KEY)
 
 
 def test_production_is_the_default_environment(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -120,3 +121,17 @@ def test_budget_settings_are_decimals(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GLOBAL_MONTHLY_BUDGET_USD", "5.00")
 
     assert str(load_settings().global_monthly_budget_usd) == "5.00"
+
+
+def test_credential_key_must_be_separate_and_is_never_echoed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DATABASE_URL", "postgresql://gateway:synthetic@db:5432/gateway")
+    monkeypatch.setenv("PROVIDER_CREDENTIAL_ENCRYPTION_KEY", TEST_RESULT_KEY)
+    with pytest.raises(SettingsError, match="PROVIDER_CREDENTIAL_ENCRYPTION_KEY") as raised:
+        load_settings()
+    assert TEST_RESULT_KEY not in str(raised.value)
+    monkeypatch.setenv("PROVIDER_CREDENTIAL_ENCRYPTION_KEY", "synthetic-invalid-key")
+    with pytest.raises(SettingsError) as raised:
+        load_settings()
+    assert "synthetic-invalid-key" not in str(raised.value)

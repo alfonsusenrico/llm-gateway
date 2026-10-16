@@ -10,7 +10,7 @@ x-gateway-environment: &gateway-environment
   AUTH_FAILURE_LIMIT_PER_MINUTE: ${AUTH_FAILURE_LIMIT_PER_MINUTE:-10}
   TRUSTED_CLIENT_IP_HEADER: ${TRUSTED_CLIENT_IP_HEADER:-}
   LLM_CALL_TIMEOUT_SECONDS: ${LLM_CALL_TIMEOUT_SECONDS:-180}
-  OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+  PROVIDER_CREDENTIAL_ENCRYPTION_KEY: ${PROVIDER_CREDENTIAL_ENCRYPTION_KEY:-}
   RESULT_ENCRYPTION_KEY: ${RESULT_ENCRYPTION_KEY:?Set RESULT_ENCRYPTION_KEY in .env}
   RESULT_RETENTION_SECONDS: ${RESULT_RETENTION_SECONDS:-86400}
   REQUEST_MAX_BYTES: ${REQUEST_MAX_BYTES:-20000000}
@@ -51,7 +51,7 @@ services:
       args:
         APP_REVISION: ${APP_REVISION:-local}
     image: llm-gateway:${APP_REVISION:-local}
-    command: ["llm-gateway-migrate"]
+    command: ["sh", "-c", "llm-gateway-migrate && llm-gateway-admin models sync"]
     environment: *gateway-environment
     depends_on:
       db:

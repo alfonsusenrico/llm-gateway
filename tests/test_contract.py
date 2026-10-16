@@ -10,7 +10,7 @@ from llm_gateway.projects.contract import ContractError, parse_contract
 
 def contract_data(**overrides: Any) -> dict[str, Any]:
     data: dict[str, Any] = {
-        "contract_version": 1,
+        "contract_version": 2,
         "project_id": "personal_agent",
         "display_name": "Personal Agent",
         "status": "active",
@@ -30,10 +30,8 @@ def contract_data(**overrides: Any) -> dict[str, Any]:
         },
         "profiles": {
             "chat": {
-                "provider": "openai",
-                "model": "gpt-6-luna",
-                "reasoning_effort": "low",
-                "max_output_tokens": 1200,
+                "model": "openai-gpt-6-luna",
+                "parameters": {"reasoning_effort": "low", "max_output_tokens": 1200},
             }
         },
     }
@@ -101,7 +99,7 @@ def test_misspelled_field_is_rejected_with_its_path() -> None:
 
 
 def test_invalid_profile_name_and_too_many_profiles_are_rejected() -> None:
-    profile = {"provider": "stub", "model": "fixed"}
+    profile = {"model": "stub-echo", "parameters": {}}
     with pytest.raises(ContractError, match="profiles"):
         parse_contract(contract_data(profiles={"Bad Name": profile}))
     too_many = {f"p{index:02d}": copy.deepcopy(profile) for index in range(21)}

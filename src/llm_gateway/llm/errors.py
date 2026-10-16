@@ -22,6 +22,20 @@ PROBLEM_STATUS: dict[str, int] = {
     "execution_unknown": 502,
     "call_result_expired": 410,
 }
+PROBLEM_STATUS.update(
+    {
+        "idempotency_conflict": 409,
+        "project_disabled": 403,
+        "project_quarantined": 503,
+        "model_task_mismatch": 422,
+        "model_registry_unavailable": 503,
+        "provider_credentials_missing": 503,
+        "provider_credentials_unreadable": 503,
+        "contract_upgrade_required": 503,
+        "credential_changed": 409,
+        "call_configuration_changed": 409,
+    }
+)
 PROBLEM_TITLES: dict[str, str] = {
     "request_invalid": "Request is invalid",
     "request_too_large": "Request is too large",
@@ -40,6 +54,21 @@ PROBLEM_TITLES: dict[str, str] = {
     "execution_unknown": "Outcome unknown; use a new call ID to try again",
     "call_result_expired": "The stored result has expired",
 }
+
+PROBLEM_TITLES.update(
+    {
+        "idempotency_conflict": "Call ID was used for another request",
+        "project_disabled": "Project is disabled",
+        "project_quarantined": "Project contract is invalid",
+        "model_task_mismatch": "Model belongs to another inference task",
+        "model_registry_unavailable": "Model registration requires synchronization",
+        "provider_credentials_missing": "Project provider credentials are missing",
+        "provider_credentials_unreadable": "Project provider credentials are unreadable",
+        "contract_upgrade_required": "Project contract requires upgrade",
+        "credential_changed": "Provider credentials changed; start a new call",
+        "call_configuration_changed": "Call configuration changed; start a new call",
+    }
+)
 
 
 class CallRejectedError(Exception):

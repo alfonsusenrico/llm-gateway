@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from llm_gateway.logging_setup import request_id_var
@@ -15,6 +17,31 @@ PROBLEM_CONTENT_TYPE = "application/problem+json"
 # A relative URI reference (RFC 9457 section 3.1.1); the stable `code` carries the meaning.
 _PROBLEM_TYPE_BASE = "/problems/"
 logger = logging.getLogger(__name__)
+
+
+class ProblemOut(BaseModel):
+    type: str
+    title: str
+    status: int
+    code: str
+    request_id: str
+    detail: str | None = None
+    errors: list[dict[str, str]] | None = None
+
+
+def document_problems(
+    responses: dict[int | str, dict[str, Any]],
+) -> dict[int | str, dict[str, Any]]:
+    """Publish the same content type and body that the exception boundary sends."""
+    return {
+        status: {
+            **details,
+            "content": {PROBLEM_CONTENT_TYPE: {"schema": ProblemOut.model_json_schema()}},
+        }
+        if isinstance(status, int) and status >= 400
+        else details
+        for status, details in responses.items()
+    }
 
 
 class GatewayError(Exception):
@@ -67,7 +94,7 @@ def problem_response(
 
 
 def unhandled_error_response(exc: Exception) -> JSONResponse:
-    logger.error("Unhandled error: %s", type(exc).__name__, exc_info=exc)
+    logger.error("Unhandled error: %s", type(exc).__name__)
     return problem_response(code="internal_error", status=500, title="Internal error")
 
 

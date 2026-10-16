@@ -1,0 +1,31 @@
+{
+  "provider": "stub",
+  "model": "stub-echo",
+  "context_window_tokens": 1000000,
+  "max_output_tokens": 128000,
+  "reasoning_efforts": [
+    "none",
+    "low",
+    "medium",
+    "high"
+  ],
+  "default_reasoning_effort": "none",
+  "temperature": "always",
+  "inputs": [
+    "text",
+    "image",
+    "file"
+  ],
+  "service_tiers": [
+    "standard"
+  ],
+  "function_tools": true,
+  "development_only": true,
+  "alias": "stub-echo",
+  "schema_version": 1,
+  "task": "llm",
+  "adapter": "stub",
+  "deployment": "stub",
+  "execution": "stub",
+  "billing": "zero"
+}

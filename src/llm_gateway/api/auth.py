@@ -15,7 +15,13 @@ from psycopg_pool import AsyncConnectionPool
 from llm_gateway.api.problems import GatewayError
 from llm_gateway.logging_setup import project_context_var
 from llm_gateway.notifier.events import dedupe_key, raise_alert_soon
-from llm_gateway.projects.contract import ContractError, ContractV1, Environment, parse_contract
+from llm_gateway.projects.contract import (
+    ContractError,
+    ContractV1,
+    ContractV2,
+    Environment,
+    parse_historical_contract,
+)
 from llm_gateway.projects.keys import parse_key, secret_matches
 from llm_gateway.settings import Settings
 
@@ -32,12 +38,12 @@ class ProjectIdentity:
     environment: Environment
     key_id: str
     contract_version: int
-    contract: ContractV1
+    contract: ContractV2
 
 
 @dataclass(frozen=True, slots=True)
 class _LoadedProject:
-    contract: ContractV1 | None  # None: the stored contract is invalid (quarantined)
+    contract: ContractV1 | ContractV2 | None  # None: invalid stored contract
     version: int
 
 
@@ -120,7 +126,7 @@ class ProjectDirectory:
             return None
         version = int(row[0])
         try:
-            contract = parse_contract(row[1])
+            contract = parse_historical_contract(row[1])
         except ContractError:
             raise_alert_soon(
                 self._pool,
@@ -209,6 +215,10 @@ class Authenticator:
             )
         if loaded.contract.status == "disabled":
             raise GatewayError("project_disabled", status=403, title="Project is disabled")
+        if isinstance(loaded.contract, ContractV1):
+            raise GatewayError(
+                "contract_upgrade_required", status=503, title="Project contract requires upgrade"
+            )
         project_context_var.set(f"{project_id}/{environment}")
         return ProjectIdentity(
             project_id, environment, presented.key_id, loaded.version, loaded.contract

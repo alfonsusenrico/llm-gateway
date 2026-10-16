@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol
 
@@ -88,7 +88,7 @@ class ProviderAdapter(Protocol):
 
     def execute_stream(
         self, resolved: ResolvedCall, request: ResponseRequest
-    ) -> AsyncIterator[StreamEvent]:
+    ) -> AsyncGenerator[StreamEvent]:
         """Yield events and end with exactly one ProviderSuccess or ProviderFailure."""
         ...
 

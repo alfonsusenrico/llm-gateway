@@ -19,6 +19,7 @@ from llm_gateway.llm.providers import (
 )
 from llm_gateway.llm.request import ResponseRequest
 from llm_gateway.llm.stub_adapter import StubAdapter
+from llm_gateway.projects.contract import ContractV2
 from tests.test_openai_adapter import RESOLVED, _request, _success_body
 from tests.test_responses_api import Calls, FakeOpenAI, _luna_success, calls_context
 
@@ -210,7 +211,7 @@ async def test_stub_streams_words_and_can_fail_mid_stream() -> None:
         {
             "provider_call_id": "s",
             "operation": "demo",
-            "model": {"provider": "stub", "model": "stub-echo"},
+            "model": "stub-echo",
             "input": "one two three four",
         }
     )
@@ -333,14 +334,14 @@ async def test_replays_are_one_event_streams(calls: Calls) -> None:
 @pytest.mark.db
 async def test_disconnected_client_still_settles_and_can_replay(calls: Calls) -> None:
     slow = FakeOpenAI(_luna_success(), delay=0.05)
-    calls.gateway.app.state.call_deps.adapters["openai"] = slow
+    calls.gateway.app.state.call_deps.adapters["openai-responses"] = lambda _: slow
     loaded = await calls.gateway.authenticator.directory.load("alpha")
-    assert loaded is not None and loaded.contract is not None
+    assert loaded is not None and isinstance(loaded.contract, ContractV2)
     request = ResponseRequest.model_validate(
         {
             "provider_call_id": "gone",
             "operation": "demo",
-            "model": {"provider": "openai", "model": "gpt-6-luna"},
+            "model": "openai-gpt-6-luna",
             "input": "hi",
             "stream": True,
         }
@@ -362,7 +363,7 @@ async def test_disconnected_client_still_settles_and_can_replay(calls: Calls) ->
     replay = await calls.post(
         "production",
         provider_call_id="gone",
-        model={"provider": "openai", "model": "gpt-6-luna"},
+        model="openai-gpt-6-luna",
         input="hi",
         operation="demo",
     )
@@ -375,11 +376,11 @@ async def test_quiet_streams_send_keep_alives(
     calls: Calls, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(streaming, "KEEP_ALIVE_SECONDS", 0.05)
-    calls.gateway.app.state.call_deps.adapters["openai"] = FakeOpenAI(_luna_success(), delay=0.2)
-
-    response = await calls.post(
-        "production", stream=True, model={"provider": "openai", "model": "gpt-6-luna"}
+    calls.gateway.app.state.call_deps.adapters["openai-responses"] = lambda _: FakeOpenAI(
+        _luna_success(), delay=0.2
     )
+
+    response = await calls.post("production", stream=True, model="openai-gpt-6-luna")
 
     assert ": keep-alive" in response.text
     assert _events(response.text)[-1][0] == "response.completed"

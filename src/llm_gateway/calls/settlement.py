@@ -69,8 +69,14 @@ async def settle(
             if outcome.service_tier_used
             else call.service_tier_requested
         )
-        price = catalogue.price(call.provider, call.model, tier, call.admitted_at.date())
+        price = (
+            None
+            if call.billing_kind == "zero"
+            else catalogue.price(call.provider, call.model, tier, call.admitted_at.date())
+        )
         cost = cost_micro_usd(outcome.usage, price) if outcome.usage is not None else None
+        if call.billing_kind == "zero":
+            cost = 0
         unpriced = outcome.usage is not None and cost is None
         charged = _charged(outcome, cost, call.reserved_micro_usd)
         usage = outcome.usage
@@ -113,7 +119,8 @@ async def settle(
             key=dedupe_key("call_unpriced", call.provider, call.model, tier),
             dedupe_window_seconds=settings.notifier_dedupe_window_seconds,
         )
-    await check_budget_thresholds(pool, settings, only_pair=(call.project_id, call.environment))
+    if call.billing_kind != "zero":
+        await check_budget_thresholds(pool, settings, only_pair=(call.project_id, call.environment))
     return settled
 
 

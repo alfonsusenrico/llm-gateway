@@ -10,11 +10,14 @@ import asyncio
 import sys
 from collections.abc import Awaitable, Callable
 from pathlib import Path
+from typing import NoReturn
 
 from psycopg_pool import AsyncConnectionPool
 
 from llm_gateway.admin import project_commands as projects
 from llm_gateway.admin.notifier_commands import TEST_WAIT_SECONDS, send_test_alert
+from llm_gateway.catalogue.model import CatalogueError, get_catalogue
+from llm_gateway.catalogue.store import synchronize
 from llm_gateway.db.pool import create_pool
 from llm_gateway.projects.contract import ContractError
 from llm_gateway.projects.service import RegistryError
@@ -46,8 +49,14 @@ def _request_values(args: argparse.Namespace) -> projects.RequestValues:
     )
 
 
+class _SafeParser(argparse.ArgumentParser):
+    def error(self, message: str) -> NoReturn:
+        self.print_usage(sys.stderr)
+        self.exit(2, "Invalid command arguments. Use --help for supported arguments.\n")
+
+
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="llm-gateway-admin", description=__doc__)
+    parser = _SafeParser(prog="llm-gateway-admin", description=__doc__)
     groups = parser.add_subparsers(dest="group")
 
     notifier = groups.add_parser("notifier", help="owner notifier")
@@ -72,7 +81,6 @@ def _parser() -> argparse.ArgumentParser:
     set_profile = actions.add_parser("set-profile", help="add or replace a model profile")
     set_profile.add_argument("project_id")
     set_profile.add_argument("name")
-    set_profile.add_argument("--provider", required=True, choices=["openai", "stub"])
     set_profile.add_argument("--model", required=True)
     set_profile.add_argument("--reasoning-effort")
     set_profile.add_argument("--max-output-tokens", type=int)
@@ -96,6 +104,21 @@ def _parser() -> argparse.ArgumentParser:
     weight = actions.add_parser("set-weight", help="set the backend weight used to share capacity")
     weight.add_argument("project_id")
     weight.add_argument("weight", type=int)
+
+    upgrade = actions.add_parser("upgrade-contract", help="append an alias-backed contract version")
+    upgrade.add_argument("project_id", nargs="?")
+    upgrade.add_argument("--all", action="store_true")
+    credential = actions.add_parser("credential", help="write-only provider credentials")
+    credential_actions = credential.add_subparsers(dest="credential_action", required=True)
+    for command in ("set", "remove", "list"):
+        command_parser = credential_actions.add_parser(command)
+        command_parser.add_argument("project_id")
+        if command != "list":
+            command_parser.add_argument("--provider", required=True)
+        if command == "set":
+            command_parser.add_argument("--stdin", action="store_true")
+    models = groups.add_parser("models", help="immutable model alias registration")
+    models.add_subparsers(dest="action", required=True).add_parser("sync")
 
     grants = groups.add_parser("grants", help="allocation grants")
     grant_actions = grants.add_subparsers(dest="action", required=True)
@@ -144,11 +167,12 @@ def _project_action_only(args: argparse.Namespace) -> Action:
             )
         case "set-profile":
             profile = {
-                "provider": args.provider,
                 "model": args.model,
-                "reasoning_effort": args.reasoning_effort,
-                "max_output_tokens": args.max_output_tokens,
-                "temperature": args.temperature,
+                "parameters": {
+                    "reasoning_effort": args.reasoning_effort,
+                    "max_output_tokens": args.max_output_tokens,
+                    "temperature": args.temperature,
+                },
             }
             return lambda pool, _settings: projects.set_profile(
                 pool, args.project_id, args.name, profile
@@ -177,6 +201,25 @@ def _project_action_only(args: argparse.Namespace) -> Action:
             return lambda pool, settings: projects.set_weight(
                 pool, settings, args.project_id, args.weight
             )
+        case "upgrade-contract":
+            if args.all == (args.project_id is not None):
+                raise RegistryError("Choose one project ID or --all.")
+            return lambda pool, _settings: projects.upgrade_contracts(pool, args.project_id)
+        case "credential":
+            from llm_gateway.admin import credential_commands as credentials
+
+            if args.credential_action == "set":
+                secret = credentials.read_credential(stdin=args.stdin)
+                return lambda pool, settings: credentials.set_credential(
+                    pool, settings, args.project_id, args.provider, secret
+                )
+            if args.credential_action == "remove":
+                return lambda pool, settings: credentials.remove_credential(
+                    pool, settings, args.project_id, args.provider
+                )
+            return lambda pool, settings: credentials.list_credentials(
+                pool, settings, args.project_id
+            )
     raise ValueError(f"unknown project action {args.action}")
 
 
@@ -196,7 +239,7 @@ async def run_with_pool(settings: Settings, action: Action) -> int:
         await pool.open(wait=True, timeout=_POOL_OPEN_TIMEOUT_SECONDS)
         print(await action(pool, settings))
         return 0
-    except (RegistryError, ContractError) as exc:
+    except (RegistryError, ContractError, CatalogueError) as exc:
         print(f"error: {exc}")
         return 1
     except Exception as exc:
@@ -222,12 +265,21 @@ def main(argv: list[str] | None = None) -> int:
     if args.group == "grants":
         action = projects.show_grants if args.action == "show" else projects.recompute_grants
         return asyncio.run(run_with_pool(settings, action))
+    if args.group == "models":
+        return asyncio.run(run_with_pool(settings, sync_models))
     try:
         action = _project_action(args)
+    except RegistryError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
     except OSError as exc:
         print(f"error: cannot read the file ({type(exc).__name__}).")
         return 1
     return asyncio.run(run_with_pool(settings, action))
+
+
+async def sync_models(pool: AsyncConnectionPool, _settings: Settings) -> str:
+    return f"Model aliases registered: {await synchronize(pool, get_catalogue())}."
 
 
 if __name__ == "__main__":

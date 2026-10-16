@@ -9,7 +9,8 @@ default, so retries are off and the gateway's failure policy decides.
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
+from contextlib import aclosing
 from typing import Any
 
 import httpx2
@@ -26,6 +27,7 @@ from openai.types.responses import (
     ResponseRefusalDeltaEvent,
     ResponseTextDeltaEvent,
 )
+from pydantic import SecretStr
 
 from llm_gateway.catalogue.pricing import TokenUsage
 from llm_gateway.llm.providers import (
@@ -63,7 +65,6 @@ _ACCOUNT_CODES = frozenset(
 # Failures before any byte of the request reached OpenAI.
 _NOT_SENT = (httpx2.ConnectError, httpx2.ConnectTimeout, httpx2.PoolTimeout)
 _CONNECT_TIMEOUT_SECONDS = 10.0
-_MAX_CODE_CHARS = 64
 logger = logging.getLogger(__name__)
 
 
@@ -125,8 +126,9 @@ def build_request(resolved: ResolvedCall, request: ResponseRequest) -> dict[str,
         ),
         "store": False,
         "max_output_tokens": resolved.max_output_tokens,
-        "prompt_cache_key": resolved.prompt_cache_key,
     }
+    if resolved.entry.prompt_cache:
+        body["prompt_cache_key"] = resolved.prompt_cache_key
     if request.instructions is not None:
         body["instructions"] = request.instructions
     if resolved.reasoning_effort is not None:
@@ -164,9 +166,19 @@ def build_request(resolved: ResolvedCall, request: ResponseRequest) -> dict[str,
 
 
 def _safe_code(value: object) -> str | None:
-    if not isinstance(value, str) or not value:
-        return None
-    return value[:_MAX_CODE_CHARS]
+    allowed = _ACCOUNT_CODES | {
+        "server_error",
+        "server_is_overloaded",
+        "rate_limit_exceeded",
+        "invalid_api_key",
+        "invalid_request_error",
+        "invalid_parameter",
+        "model_not_found",
+        "slow_down",
+        "permission_error",
+        "invalid_value",
+    }
+    return value if isinstance(value, str) and value in allowed else None
 
 
 def _retry_after(response: httpx2.Response | None) -> int | None:
@@ -339,7 +351,7 @@ class OpenAIAdapter:
 
     async def execute_stream(
         self, resolved: ResolvedCall, request: ResponseRequest
-    ) -> AsyncIterator[StreamEvent]:
+    ) -> AsyncGenerator[StreamEvent]:
         """Stream the call. Once OpenAI answered 200 the request was accepted, so any
         later loss is `execution_unknown` unless an explicit event says otherwise."""
         try:
@@ -410,3 +422,29 @@ class OpenAIAdapter:
             await stream.close()
         # The stream ended without a terminal event: the outcome is unknown.
         yield ProviderFailure("execution_unknown", "stream_ended", None, None, request_id)
+
+
+class CredentialOpenAIAdapter:
+    """A captured credential belongs to one execution, including a detached stream."""
+
+    def __init__(self, secret: SecretStr, timeout_seconds: int) -> None:
+        self._secret = secret
+        self._timeout_seconds = timeout_seconds
+
+    async def execute(
+        self, resolved: ResolvedCall, request: ResponseRequest
+    ) -> ProviderSuccess | ProviderFailure:
+        async with create_openai_client(
+            self._secret.get_secret_value(), self._timeout_seconds
+        ) as client:
+            return await OpenAIAdapter(client).execute(resolved, request)
+
+    async def execute_stream(
+        self, resolved: ResolvedCall, request: ResponseRequest
+    ) -> AsyncGenerator[StreamEvent]:
+        async with (
+            create_openai_client(self._secret.get_secret_value(), self._timeout_seconds) as client,
+            aclosing(OpenAIAdapter(client).execute_stream(resolved, request)) as events,
+        ):
+            async for event in events:
+                yield event
