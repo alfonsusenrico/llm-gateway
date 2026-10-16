@@ -1,0 +1,41 @@
+{
+  "schema_version": 3,
+  "task": "embedding",
+  "temperature": "never",
+  "inputs": [
+    "text"
+  ],
+  "service_tiers": [
+    "standard"
+  ],
+  "function_tools": false,
+  "development_only": false,
+  "streaming": false,
+  "structured_output": false,
+  "prompt_cache": false,
+  "max_output_tokens": 0,
+  "alias": "openai-text-embedding-3-small",
+  "adapter": "openai-embeddings",
+  "deployment": "openai",
+  "execution": "remote",
+  "billing": "token",
+  "provider": "openai",
+  "model": "text-embedding-3-small",
+  "context_window_tokens": 8192,
+  "embedding": {
+    "dimensions": 1536,
+    "variable_dimensions": true,
+    "normalized": true,
+    "max_batch_size": 64,
+    "max_input_bytes": 200000,
+    "max_batch_tokens": 300000,
+    "input_types": [],
+    "query_prefix": "",
+    "pooling": "provider",
+    "revision": null,
+    "service_definition_digest": null
+  },
+  "documentation": [
+    "https://developers.openai.com/api/docs/models/text-embedding-3-small"
+  ]
+}

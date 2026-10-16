@@ -1,0 +1,44 @@
+{
+  "schema_version": 3,
+  "task": "embedding",
+  "temperature": "never",
+  "inputs": [
+    "text"
+  ],
+  "service_tiers": [
+    "standard"
+  ],
+  "function_tools": false,
+  "development_only": false,
+  "streaming": false,
+  "structured_output": false,
+  "prompt_cache": false,
+  "max_output_tokens": 0,
+  "alias": "local-minilm-l6-v2-v1",
+  "adapter": "local-embeddings",
+  "deployment": "embeddings",
+  "execution": "local",
+  "billing": "zero",
+  "provider": "sentence_transformers",
+  "model": "minilm-l6-v2-v1",
+  "context_window_tokens": 256,
+  "embedding": {
+    "dimensions": 384,
+    "variable_dimensions": false,
+    "normalized": true,
+    "max_batch_size": 64,
+    "max_input_bytes": 200000,
+    "max_batch_tokens": 16384,
+    "input_types": [
+      "query",
+      "document"
+    ],
+    "query_prefix": "",
+    "pooling": "mean",
+    "revision": "1110a243fdf4706b3f48f1d95db1a4f5529b4d41",
+    "service_definition_digest": "6a536f35989163f9d11c10bfe591f4f0e647768d7122e39cc2cdc930f3bef95a"
+  },
+  "documentation": [
+    "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2"
+  ]
+}

@@ -44,8 +44,9 @@ async def _details(calls: Calls, path: str = "/v1/models", environment: str = "d
 
 async def test_discovery_fields_schemas_and_task_filtering(calls: Calls) -> None:
     assert (await calls.gateway.client.get("/v1/models")).status_code == 401
-    for task in ["embedding", "ocr"]:
-        assert (await _details(calls, f"/v1/models?task={task}")).json() == {"models": []}
+    assert (await _details(calls, "/v1/models?task=ocr")).json() == {"models": []}
+    embeddings = (await _details(calls, "/v1/models?task=embedding")).json()["models"]
+    assert len(embeddings) == 4 and all(m["task"] == "embedding" for m in embeddings)
     assert (await _details(calls, "/v1/catalogue")).status_code == 404
     assert (await _details(calls, "/v1/models/stub-echo", "production")).status_code == 404
     assert (await _details(calls, "/v1/models/unknown")).status_code == 404

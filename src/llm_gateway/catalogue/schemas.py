@@ -20,6 +20,12 @@ def _schema(definition: str) -> dict[str, Any]:
     from llm_gateway.llm.request import ResponseRequest
 
     entry = ModelEntry.model_validate_json(definition)
+    if entry.task == "embedding":
+        from llm_gateway.embeddings.models import embedding_schema
+
+        schema = embedding_schema(entry)
+        Draft202012Validator.check_schema(schema)
+        return schema
     schema = deepcopy(ResponseRequest.model_json_schema(by_alias=True))
     schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
     properties = schema["properties"]

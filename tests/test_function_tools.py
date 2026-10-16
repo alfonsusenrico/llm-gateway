@@ -155,6 +155,10 @@ def test_packaged_models_declare_function_tool_support() -> None:
     catalogue = load_catalogue(DATA_DIR / "models", DATA_DIR / "prices.json")
 
     assert {alias: entry.function_tools for alias, entry in catalogue.models.items()} == {
+        "local-bge-small-en-v1.5-retrieval-v1": False,
+        "local-minilm-l6-v2-v1": False,
+        "openai-text-embedding-3-small": False,
+        "openai-text-embedding-3-large": False,
         "openai-gpt-6-luna": True,
         "stub-echo": True,
         "ollama-qwen2.5-3b-instruct-q4km-v1": False,

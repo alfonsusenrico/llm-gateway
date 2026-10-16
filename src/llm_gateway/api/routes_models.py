@@ -79,6 +79,18 @@ async def _summary(deps: CallDeps, entry: ModelEntry, identity: ProjectIdentity)
     }
     if entry.local is not None:
         capabilities["local_contract"] = entry.local.model_dump(mode="json")
+    limits = {
+        "context_window_tokens": entry.context_window_tokens,
+        "max_output_tokens": entry.max_output_tokens,
+    }
+    if entry.embedding is not None:
+        capabilities = entry.embedding.model_dump(mode="json")
+        limits = {
+            "max_input_tokens": entry.context_window_tokens,
+            "max_batch_size": entry.embedding.max_batch_size,
+            "max_input_bytes": entry.embedding.max_input_bytes,
+            "max_batch_tokens": entry.embedding.max_batch_tokens,
+        }
     return ModelSummary(
         alias=entry.alias,
         task=entry.task,
@@ -87,10 +99,7 @@ async def _summary(deps: CallDeps, entry: ModelEntry, identity: ProjectIdentity)
         definition_digest=entry.definition_digest,
         execution=entry.execution,
         billing=entry.billing,
-        limits={
-            "context_window_tokens": entry.context_window_tokens,
-            "max_output_tokens": entry.max_output_tokens,
-        },
+        limits=limits,
         capabilities=capabilities,
         prices=prices,
         availability=Availability(configured=reason is None, reason=reason),

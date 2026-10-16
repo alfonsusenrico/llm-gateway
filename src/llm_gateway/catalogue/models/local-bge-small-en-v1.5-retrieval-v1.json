@@ -1,0 +1,44 @@
+{
+  "schema_version": 3,
+  "task": "embedding",
+  "temperature": "never",
+  "inputs": [
+    "text"
+  ],
+  "service_tiers": [
+    "standard"
+  ],
+  "function_tools": false,
+  "development_only": false,
+  "streaming": false,
+  "structured_output": false,
+  "prompt_cache": false,
+  "max_output_tokens": 0,
+  "alias": "local-bge-small-en-v1.5-retrieval-v1",
+  "adapter": "local-embeddings",
+  "deployment": "embeddings",
+  "execution": "local",
+  "billing": "zero",
+  "provider": "sentence_transformers",
+  "model": "bge-small-en-v1.5-retrieval-v1",
+  "context_window_tokens": 512,
+  "embedding": {
+    "dimensions": 384,
+    "variable_dimensions": false,
+    "normalized": true,
+    "max_batch_size": 64,
+    "max_input_bytes": 200000,
+    "max_batch_tokens": 32768,
+    "input_types": [
+      "query",
+      "document"
+    ],
+    "query_prefix": "Represent this sentence for searching relevant passages: ",
+    "pooling": "cls",
+    "revision": "5c38ec7c405ec4b44b94cc5a9bb96e735b38267a",
+    "service_definition_digest": "cc0b2cf8480afe3466d391cd12cd5b73ab094c65c7a72f8d39089ef4444e6c95"
+  },
+  "documentation": [
+    "https://huggingface.co/BAAI/bge-small-en-v1.5"
+  ]
+}

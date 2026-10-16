@@ -48,7 +48,11 @@ def reservation_micro_usd(catalogue: Catalogue, request: CallRequest, on: date) 
         return 0
     price = catalogue.price(request.provider, request.model, request.service_tier, on)
     usage = TokenUsage(
-        input_tokens=math.ceil(request.request_bytes / _RESERVATION_BYTES_PER_TOKEN),
+        input_tokens=(
+            request.input_token_upper_bound
+            if request.input_token_upper_bound is not None
+            else math.ceil(request.request_bytes / _RESERVATION_BYTES_PER_TOKEN)
+        ),
         output_tokens=request.max_output_tokens,
     )
     cost = cost_micro_usd(usage, price)
