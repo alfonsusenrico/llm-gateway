@@ -127,7 +127,7 @@ def test_tools_change_the_fingerprint() -> None:
 
 def test_model_without_function_tools_refuses_tools(tmp_path: Path) -> None:
     models = _base("models.json")
-    models["models"][0]["function_tools"] = False
+    next(m for m in models["models"] if m["alias"] == "openai-gpt-6-luna")["function_tools"] = False
     catalogue = load_catalogue(*_files(tmp_path, models=models))
 
     with pytest.raises(CallRejectedError) as raised:
@@ -151,10 +151,15 @@ def test_continuation_from_another_model_is_refused() -> None:
     assert raised.value.code == "continuation_mismatch"
 
 
-def test_packaged_models_support_function_tools() -> None:
+def test_packaged_models_declare_function_tool_support() -> None:
     catalogue = load_catalogue(DATA_DIR / "models", DATA_DIR / "prices.json")
 
-    assert all(entry.function_tools for entry in catalogue.models.values())
+    assert {alias: entry.function_tools for alias, entry in catalogue.models.items()} == {
+        "openai-gpt-6-luna": True,
+        "stub-echo": True,
+        "ollama-qwen2.5-3b-instruct-q4km-v1": False,
+        "ollama-llama3.2-3b-instruct-q4km-v1": False,
+    }
 
 
 # OpenAI mapping
@@ -399,7 +404,9 @@ async def test_catalogue_shows_function_tool_support(calls: Calls) -> None:
         "/v1/models", headers={"Authorization": f"Bearer {calls.keys['production'].raw}"}
     )
 
-    assert response.json()["models"][0]["capabilities"]["function_tools"] is True
+    models = {model["alias"]: model for model in response.json()["models"]}
+    assert models["openai-gpt-6-luna"]["capabilities"]["function_tools"] is True
+    assert models["ollama-qwen2.5-3b-instruct-q4km-v1"]["capabilities"]["function_tools"] is False
 
 
 def test_continuation_from_another_alias_of_same_upstream_is_refused() -> None:

@@ -1,0 +1,40 @@
+{
+  "schema_version": 2,
+  "alias": "ollama-llama3.2-3b-instruct-q4km-v1",
+  "task": "llm",
+  "adapter": "ollama-native",
+  "deployment": "ollama",
+  "execution": "local",
+  "billing": "zero",
+  "provider": "ollama",
+  "model": "llama3.2-3b-instruct-q4km-v1:latest",
+  "context_window_tokens": 4096,
+  "max_output_tokens": 1024,
+  "reasoning_efforts": [],
+  "default_reasoning_effort": null,
+  "temperature": "always",
+  "inputs": [
+    "text"
+  ],
+  "service_tiers": [
+    "standard"
+  ],
+  "function_tools": false,
+  "development_only": false,
+  "streaming": true,
+  "structured_output": true,
+  "prompt_cache": false,
+  "local": {
+    "protocol": "ollama-gpu-native-v1",
+    "runtime_version": "0.5.11",
+    "artifact_digest": "0791b49416189f72020ae28e115e685f8864c08627ba5c2163d459dc34a8c79f",
+    "template_digest": "966de95ca8a62200913e3f8bfbf84c8494536f1b94b49166851e76644e966396",
+    "system_digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "prompt_fixed_bytes": 512,
+    "prompt_message_bytes": 128,
+    "default_temperature": 0
+  },
+  "documentation": [
+    "https://github.com/ollama/ollama/blob/v0.5.11/docs/api.md"
+  ]
+}

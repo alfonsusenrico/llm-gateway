@@ -24,3 +24,4 @@ build/
 
 # Private planning notes (this repository is public)
 research/
+compose.inference.local.yaml

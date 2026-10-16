@@ -43,6 +43,7 @@ UNAVAILABLE_CODES = frozenset(
     {
         "provider_account_blocked",
         "provider_not_configured",
+        "provider_configuration_mismatch",
         "provider_failed",
         "project_quarantined",
         "call_result_expired",

@@ -69,6 +69,16 @@ async def _summary(deps: CallDeps, entry: ModelEntry, identity: ProjectIdentity)
                     "usd_per_million": price.usd_per_million.model_dump(mode="json"),
                     "effective_from": price.effective_from.isoformat(),
                 }
+    capabilities: dict[str, Any] = {
+        "reasoning_efforts": list(entry.reasoning_efforts),
+        "temperature": entry.temperature,
+        "inputs": list(entry.inputs),
+        "function_tools": entry.function_tools,
+        "streaming": entry.streaming,
+        "structured_output": entry.structured_output,
+    }
+    if entry.local is not None:
+        capabilities["local_contract"] = entry.local.model_dump(mode="json")
     return ModelSummary(
         alias=entry.alias,
         task=entry.task,
@@ -81,14 +91,7 @@ async def _summary(deps: CallDeps, entry: ModelEntry, identity: ProjectIdentity)
             "context_window_tokens": entry.context_window_tokens,
             "max_output_tokens": entry.max_output_tokens,
         },
-        capabilities={
-            "reasoning_efforts": list(entry.reasoning_efforts),
-            "temperature": entry.temperature,
-            "inputs": list(entry.inputs),
-            "function_tools": entry.function_tools,
-            "streaming": entry.streaming,
-            "structured_output": entry.structured_output,
-        },
+        capabilities=capabilities,
         prices=prices,
         availability=Availability(configured=reason is None, reason=reason),
     )

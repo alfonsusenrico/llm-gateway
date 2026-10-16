@@ -10,6 +10,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from jsonschema import Draft202012Validator
 from psycopg_pool import AsyncConnectionPool
 
 from llm_gateway.calls.admission import admit, find_call
@@ -300,17 +301,32 @@ async def finish_call(
     return body
 
 
-def _structured_output(request: ResponseRequest, result: ProviderSuccess) -> tuple[Any, str | None]:
+def _structured_output(
+    request: ResponseRequest, result: ProviderSuccess, resolved: ResolvedCall
+) -> tuple[Any, str | None]:
     if request.text_format.type != "json_schema" or result.refusal is not None:
         return None, None
     if not result.output_text.strip():
         return None, "empty_output"
     try:
         parsed = json.loads(result.output_text)
-    except ValueError:
+        if resolved.entry.local is not None:
+            # Python's decoder also accepts non-JSON numbers and lone UTF-16
+            # surrogates. Neither can be emitted safely as our JSON result.
+            json.dumps(parsed, allow_nan=False, ensure_ascii=False).encode("utf-8")
+    except (ValueError, RecursionError):
         return None, "invalid_json"
     if not isinstance(parsed, dict):
         return None, "not_json_object"
+    if resolved.entry.local is not None:
+        schema = request.text_format.json_schema
+        if schema is None:
+            return None, "schema_mismatch"
+        try:
+            if not Draft202012Validator(schema).is_valid(parsed):
+                return None, "schema_mismatch"
+        except Exception:
+            return None, "schema_mismatch"
     return parsed, None
 
 
@@ -348,7 +364,7 @@ def _continuation(resolved: ResolvedCall, result: ProviderSuccess) -> dict[str, 
 def _body(
     request: ResponseRequest, resolved: ResolvedCall, result: ProviderSuccess
 ) -> dict[str, Any]:
-    output_json, structured_error = _structured_output(request, result)
+    output_json, structured_error = _structured_output(request, result, resolved)
     usage = result.usage
     return {
         "provider_call_id": request.provider_call_id,

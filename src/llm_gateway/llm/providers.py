@@ -20,6 +20,7 @@ FailureCategory = Literal[
     "invalid_request",
     "execution_unknown",
     "provider_failed",
+    "configuration_mismatch",
 ]
 _DEFAULT_RETRY_SECONDS = 5
 
@@ -117,3 +118,5 @@ def failure_policy(failure: ProviderFailure) -> FailurePolicy:
             return FailurePolicy("provider_failed", "failed", None, False)
         case "execution_unknown":
             return FailurePolicy("execution_unknown", "execution_unknown", None, False)
+        case "configuration_mismatch":
+            return FailurePolicy("provider_configuration_mismatch", "failed", None, False)

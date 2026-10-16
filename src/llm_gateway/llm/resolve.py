@@ -83,7 +83,9 @@ def resolve(
     inherited = profile.parameters.model_dump(exclude_none=True) if profile else {}
     payload = {**inherited, **supplied}
     effort = payload.get("reasoning_effort", entry.default_reasoning_effort)
-    temperature = payload.get("temperature")
+    temperature = payload.get(
+        "temperature", entry.local.default_temperature if entry.local is not None else None
+    )
     max_output = payload.get(
         "max_output_tokens", min(default_max_output_tokens, entry.max_output_tokens)
     )
@@ -106,6 +108,10 @@ def resolve(
     problems = setting_errors(entry, effective)
     if problems:
         raise CallRejectedError("invalid_model_settings", detail="; ".join(problems))
+    if entry.local is not None:
+        from llm_gateway.llm.local_rules import validate_local_request
+
+        validate_local_request(entry, request, max_output)
     for continuation in request.continuations():
         if (
             continuation.provider,
