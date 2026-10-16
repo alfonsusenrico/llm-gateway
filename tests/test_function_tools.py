@@ -157,6 +157,7 @@ def test_packaged_models_declare_function_tool_support() -> None:
     assert {alias: entry.function_tools for alias, entry in catalogue.models.items()} == {
         "local-bge-small-en-v1.5-retrieval-v1": False,
         "local-minilm-l6-v2-v1": False,
+        "local-rapidocr-ppocrv4-v1": False,
         "openai-text-embedding-3-small": False,
         "openai-text-embedding-3-large": False,
         "openai-gpt-6-luna": True,

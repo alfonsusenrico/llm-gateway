@@ -19,6 +19,7 @@ class AdapterDefinition:
 
 
 ADAPTERS: dict[str, AdapterDefinition] = {
+    "local-ocr": AdapterDefinition("ocr", "rapidocr", "local", False, False, False, False, False),
     "openai-responses": AdapterDefinition("llm", "openai", "remote"),
     "stub": AdapterDefinition("llm", "stub", "stub"),
     "ollama-native": AdapterDefinition(

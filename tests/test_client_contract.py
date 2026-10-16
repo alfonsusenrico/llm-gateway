@@ -286,6 +286,7 @@ async def test_allocation_catalogue_and_identity(calls: Calls) -> None:
     assert {m.alias: m.model for m in models} == {
         "local-bge-small-en-v1.5-retrieval-v1": "bge-small-en-v1.5-retrieval-v1",
         "local-minilm-l6-v2-v1": "minilm-l6-v2-v1",
+        "local-rapidocr-ppocrv4-v1": "rapidocr-ppocrv4-v1",
         "openai-text-embedding-3-small": "text-embedding-3-small",
         "openai-text-embedding-3-large": "text-embedding-3-large",
         "ollama-llama3.2-3b-instruct-q4km-v1": "llama3.2-3b-instruct-q4km-v1:latest",

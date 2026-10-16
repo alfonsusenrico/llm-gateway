@@ -45,6 +45,23 @@ class LocalLlmContract(_Strict):
     default_temperature: Literal[0] = 0
 
 
+class OcrContract(_Strict):
+    protocol: Literal["rapidocr-gpu-native-v1"]
+    service_definition_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    engine: Literal["rapidocr-onnxruntime"]
+    engine_version: Literal["1.4.4"]
+    runtime: Literal["onnxruntime-gpu"]
+    runtime_version: Literal["1.20.2"]
+    media_types: tuple[Literal["image/png", "image/jpeg"], ...]
+    max_image_bytes: int = Field(ge=1, le=8_000_000)
+    max_pixels: int = Field(ge=1, le=12_000_000)
+    max_side: int = Field(ge=1, le=4096)
+    max_blocks: int = Field(ge=1, le=2048)
+    max_text_bytes: int = Field(ge=1, le=1_000_000)
+    coordinate_system: Literal["original_image_pixels"]
+    exif_rotation: Literal[False]
+
+
 class EmbeddingContract(_Strict):
     dimensions: int = Field(ge=1, le=3072)
     variable_dimensions: bool = False
@@ -89,7 +106,7 @@ _V1_FIELDS = frozenset(
 
 
 class ModelEntry(_Strict):
-    schema_version: Literal[1, 2, 3] = 1
+    schema_version: Literal[1, 2, 3, 4] = 1
     alias: str = Field(pattern=ALIAS_PATTERN)
     task: Task = "llm"
     adapter: str
@@ -98,7 +115,7 @@ class ModelEntry(_Strict):
     billing: Literal["token", "zero"]
     provider: str = Field(pattern=r"^[a-z][a-z0-9_-]{1,31}$")
     model: str = Field(min_length=1, max_length=160)
-    context_window_tokens: int = Field(ge=1)
+    context_window_tokens: int = Field(ge=0)
     max_output_tokens: int = Field(ge=0)
     reasoning_efforts: tuple[str, ...] = ()
     default_reasoning_effort: str | None = None
@@ -113,6 +130,7 @@ class ModelEntry(_Strict):
     documentation: tuple[str, ...] = ()
     local: LocalLlmContract | None = None
     embedding: EmbeddingContract | None = None
+    ocr: OcrContract | None = None
 
     @model_validator(mode="after")
     def _default_effort_is_allowed(self) -> ModelEntry:
@@ -143,7 +161,26 @@ class ModelEntry(_Strict):
             raise ValueError("local/stub execution must explicitly declare zero provider fee")
         if self.task == "llm" and self.max_output_tokens < 1:
             raise ValueError("LLM output limit must be positive")
-        if self.task == "embedding":
+        if self.task != "ocr" and self.context_window_tokens < 1:
+            raise ValueError("text tasks require a positive input token limit")
+        if self.task != "ocr" and self.ocr is not None:
+            raise ValueError("OCR contract requires OCR task")
+        if self.task == "ocr":
+            if (
+                self.schema_version != 4
+                or self.ocr is None
+                or self.local is not None
+                or self.embedding is not None
+                or self.deployment != "ocr"
+                or self.inputs != ("image",)
+                or self.service_tiers != ("standard",)
+                or self.temperature != "never"
+                or self.context_window_tokens != 0
+                or self.max_output_tokens != 0
+                or self.ocr.media_types != ("image/png", "image/jpeg")
+            ):
+                raise ValueError("OCR requires a schema-4 image execution contract")
+        elif self.task == "embedding":
             spec = self.embedding
             if self.schema_version != 3 or spec is None or self.local is not None:
                 raise ValueError("embedding requires a schema-3 embedding contract")
@@ -193,7 +230,8 @@ class ModelEntry(_Strict):
                 mode="json",
                 include=set(_V1_FIELDS)
                 | ({"local"} if self.schema_version == 2 else set())
-                | ({"embedding"} if self.schema_version == 3 else set()),
+                | ({"embedding"} if self.schema_version == 3 else set())
+                | ({"ocr"} if self.schema_version == 4 else set()),
             ),
             sort_keys=True,
             separators=(",", ":"),

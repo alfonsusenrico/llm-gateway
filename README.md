@@ -4,9 +4,8 @@ A self-hosted gateway that AI projects call instead of a language-model
 provider. It holds the provider keys, runs every call, classifies failures,
 and keeps spending under a hard monthly cap.
 
-> **Status:** early development. The foundation is in place: settings, error
-> format, health checks, migrations, and the local stack. Features below are
-> planned and land phase by phase through the specs in `openspec/`.
+> **Status:** development, pending owner acceptance for deployment. LLM, embedding
+> and OCR endpoints land through separate reviewed changes in `openspec/`.
 
 ## Why a gateway
 
@@ -39,13 +38,17 @@ gateway solves them once.
 | Model catalogue and pricing | Done |
 | Call admission, usage ledger, budget enforcement | Done |
 | Direct OpenAI calls, stub provider, result replay | Done |
+| GPU-required local LLM | Done |
+| Separate embedding endpoint | Done |
+| Separate GPU-required OCR endpoint | Implemented; pending review |
 | Python client | Done |
 | Streamed responses | Done |
 | Function tools | Done |
 | Async background jobs, flex tier, dynamic allocation | Planned |
 
-OpenAI is the first provider; the adapter interface and model catalogue are
-designed for more.
+See the focused contracts for [local LLM](docs/local-llm.md),
+[embeddings](docs/embeddings.md) and [OCR](docs/ocr.md). Each feature has its own
+endpoint; projects own prompts, document workflows and vector storage.
 
 ## Local setup
 
@@ -123,16 +126,16 @@ docker compose run --rm api llm-gateway-admin grants show
 docker compose run --rm api llm-gateway-admin project set-weight my_project 3
 ```
 
-Profiles name a catalogue model (`GET /v1/catalogue` lists them with
+Profiles name a catalogue model (`GET /v1/models` lists them with
 current prices). A profile is checked when saved: unknown models, unsupported
 reasoning efforts, and a temperature with reasoning on gpt-6-luna are
 refused.
 
 ```bash
-docker compose run --rm api llm-gateway-admin project set-profile my_project chat --provider openai --model gpt-6-luna --reasoning-effort low
+docker compose run --rm api llm-gateway-admin project set-profile my_project chat --model openai-gpt-6-luna --reasoning-effort low
 ```
 
-To add a model or change a price, edit `src/llm_gateway/catalogue/models.json`
+To add a model or change a price, edit `src/llm_gateway/catalogue/models/*.json`
 or add a dated entry to `prices.json`, then run `./scripts/check`.
 
 ### Python client
@@ -150,12 +153,12 @@ provider:
 curl -s http://127.0.0.1:8360/v1/responses \
   -H "Authorization: Bearer $DEV_KEY" -H "Content-Type: application/json" \
   -d '{"provider_call_id": "demo-1", "operation": "demo",
-       "model": {"provider": "stub", "model": "stub-echo"}, "input": "Hello"}'
+       "model": "stub-echo", "input": "Hello"}'
 ```
 
 - **Real models:** use a profile (`"profile": "chat"`) or a catalogue model
-  (`{"provider": "openai", "model": "gpt-6-luna"}`). Setting
-  `OPENAI_API_KEY` enables OpenAI.
+  alias (`"model": "openai-gpt-6-luna"`). Register per-project provider credentials
+  through protected admin input; global provider keys are never a fallback.
 - **Input:** text, or messages with `input_text`, `input_image` (base64
   PNG, JPEG, WEBP, or GIF), and `input_file` (base64 PDF) parts.
 - **Structured output:** `text_format` asks for a strict JSON schema, and
@@ -184,7 +187,7 @@ curl -s http://127.0.0.1:8360/v1/responses \
 curl -sN http://127.0.0.1:8360/v1/responses \
   -H "Authorization: Bearer $DEV_KEY" -H "Content-Type: application/json" \
   -d '{"provider_call_id": "demo-stream-1", "operation": "demo", "stream": true,
-       "model": {"provider": "stub", "model": "stub-echo"}, "input": "Hello there"}'
+       "model": "stub-echo", "input": "Hello there"}'
 ```
 
 - **Events:** `response.started`, then `text.delta` and `refusal.delta`
@@ -215,14 +218,14 @@ TOOLS='[{"type": "function", "name": "get_events",
 FIRST=$(curl -s http://127.0.0.1:8360/v1/responses \
   -H "Authorization: Bearer $DEV_KEY" -H "Content-Type: application/json" \
   -d "{\"provider_call_id\": \"tools-1\", \"operation\": \"demo\",
-       \"model\": {\"provider\": \"stub\", \"model\": \"stub-echo\"},
+       \"model\": \"stub-echo\",
        \"input\": \"What is on today?\", \"tools\": $TOOLS,
        \"stub\": {\"tool_calls\": [{\"name\": \"get_events\", \"arguments\": {\"day\": \"today\"}}]}}")
 echo "$FIRST" | jq '.tool_calls'
 
 jq -n --argjson first "$FIRST" --argjson tools "$TOOLS" '{
   provider_call_id: "tools-2", operation: "demo",
-  model: {provider: "stub", model: "stub-echo"}, tools: $tools,
+  model: "stub-echo", tools: $tools,
   input: [
     ({type: "continuation"} + $first.continuation),
     {type: "function_call_output", call_id: $first.tool_calls[0].call_id,

@@ -22,6 +22,7 @@ from llm_gateway.api.routes_allocation import GrantDirectory
 from llm_gateway.api.routes_allocation import router as allocation_router
 from llm_gateway.api.routes_embeddings import router as embeddings_router
 from llm_gateway.api.routes_models import router as models_router
+from llm_gateway.api.routes_ocr import router as ocr_router
 from llm_gateway.api.routes_projects import router as projects_router
 from llm_gateway.api.routes_responses import router as responses_router
 from llm_gateway.catalogue.model import get_catalogue
@@ -36,6 +37,7 @@ from llm_gateway.llm.service import CallDeps
 from llm_gateway.llm.stub_adapter import StubAdapter
 from llm_gateway.logging_setup import configure_logging, request_id_var
 from llm_gateway.notifier.events import wait_for_background_alerts
+from llm_gateway.ocr.adapter import OcrAdapter
 from llm_gateway.projects.credentials import Credential
 from llm_gateway.settings import Settings, load_settings
 
@@ -81,6 +83,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(models_router)
     app.include_router(responses_router)
     app.include_router(embeddings_router)
+    app.include_router(ocr_router)
 
     @app.middleware("http")
     async def assign_request_id(
@@ -91,7 +94,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         token = request_id_var.set(request_id)
         try:
             if (
-                request.url.path in {"/v1/responses", "/v1/embeddings"}
+                request.url.path in {"/v1/responses", "/v1/embeddings", "/v1/ocr"}
                 and len(await request.body()) > settings.request_max_bytes
             ):
                 response = problem_response(
@@ -132,6 +135,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             providers["ollama"] = "adapter_available"
         if settings.embeddings_base_url is not None:
             providers["sentence_transformers"] = "adapter_available"
+        if settings.ocr_base_url is not None:
+            providers["rapidocr"] = "adapter_available"
         return JSONResponse(
             {"status": "ready", "revision": settings.app_revision, "providers": providers}
         )
@@ -169,6 +174,11 @@ def create_call_deps(settings: Settings, pool: AsyncConnectionPool) -> CallDeps:
     if embedding_url is not None:
         adapters["local-embeddings"] = lambda _credential: EmbeddingAdapter(
             embedding_url, settings.llm_call_timeout_seconds, local=True
+        )
+    ocr_url = settings.ocr_base_url
+    if ocr_url is not None:
+        adapters["local-ocr"] = lambda _credential: OcrAdapter(
+            ocr_url, settings.llm_call_timeout_seconds
         )
     return CallDeps(
         pool=pool,

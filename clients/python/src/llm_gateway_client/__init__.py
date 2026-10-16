@@ -1,6 +1,6 @@
 """Typed Python client for LLM Gateway."""
 
-__version__ = "0.6.0"
+__version__ = "0.7.0"
 
 from llm_gateway_client.client import GatewayClient, RetryPolicy, SyncGatewayClient
 from llm_gateway_client.errors import (
@@ -22,6 +22,8 @@ from llm_gateway_client.models import (
     Identity,
     ModelDetails,
     ModelSummary,
+    OcrBlock,
+    OcrResult,
     RefusalDelta,
     Started,
     StreamEvent,
@@ -33,6 +35,7 @@ from llm_gateway_client.models import (
     image,
     json_schema,
     message,
+    ocr_image,
     pdf,
     text,
     tool,
@@ -55,6 +58,8 @@ __all__ = [
     "InvalidRequestError",
     "ModelDetails",
     "ModelSummary",
+    "OcrBlock",
+    "OcrResult",
     "RefusalDelta",
     "RetryPolicy",
     "RetryableError",
@@ -69,6 +74,7 @@ __all__ = [
     "image",
     "json_schema",
     "message",
+    "ocr_image",
     "pdf",
     "text",
     "tool",

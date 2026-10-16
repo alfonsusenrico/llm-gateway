@@ -20,6 +20,12 @@ def _schema(definition: str) -> dict[str, Any]:
     from llm_gateway.llm.request import ResponseRequest
 
     entry = ModelEntry.model_validate_json(definition)
+    if entry.task == "ocr":
+        from llm_gateway.ocr.models import ocr_schema
+
+        schema = ocr_schema(entry)
+        Draft202012Validator.check_schema(schema)
+        return schema
     if entry.task == "embedding":
         from llm_gateway.embeddings.models import embedding_schema
 
